@@ -27,6 +27,11 @@ class Bag2Images:
                 raise ValueError("The topic with name %s was not found in bag %s" % (topic, path_to_bag))
 
             for topic, msg, t in bag.read_messages(topics=[topic]):
+                # skip frames with a different size than the first one (DAVIS346 sensor fault in the Wells Cave
+                # bags), as evaluate.cpp does; KLT cannot track between images of different sizes
+                if self.images and (msg.height, msg.width) != self.images[0].shape[:2]:
+                    continue
+
                 time = msg.header.stamp.secs + 1e-9 * msg.header.stamp.nsecs
                 self.times.append(time)
 
