@@ -56,9 +56,20 @@ def main():
         msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w = q_wi
         poses.append((t, msg))
 
+    # 'evaluate' processes messages in recording order, but MVSEC event packets were recorded ~30 ms before the IMU
+    # samples covering the same time span. EKLT matches timestamped at the newest event then lie beyond the newest
+    # IMU state and the EKF rejects them ("Closest state request too far in the future"), which breaks every SLAM
+    # track. Record each message when its data is complete instead: events at their last event, IMU and images at
+    # their header stamp.
     topics = ['/davis/left/events', '/davis/left/image_raw', '/davis/left/imu']
     with Bag(args.output, 'w') as out, Bag(args.data) as data_bag:
         for topic, m, t in tqdm(data_bag.read_messages(topics), total=data_bag.get_message_count(topics)):
+            if topic == '/davis/left/events':
+                if not m.events:
+                    continue
+                t = m.events[-1].ts
+            else:
+                t = m.header.stamp
             out.write(topic, m, t)
         for t, m in poses:
             out.write('/davis/left/pose', m, t)
