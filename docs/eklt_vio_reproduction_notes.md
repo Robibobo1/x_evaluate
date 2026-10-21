@@ -77,7 +77,25 @@ Also observed on MVSEC indoor_flying1 (drone, motion capture ground truth; work 
 position error over a 26.7 m flight; EKLT-VIO diverges at liftoff, where its tracks on a fine-grained carpet slip by
 25-100 px within half a second while being kept by the filter (`eklt_tracking_quality` 0.3 inherited from Wells).
 
-## 6. Open points
+## 6. Independent reproduction
+
+A second setup was built from scratch in a separate folder, without access to this repository's Docker setup, patches
+or results, with its own dependency choices (versions pinned to before the original code's last commit) and its own
+fix for the tile crash (a bounds guard in the loops of `setTileForFeature` instead of clamping the result). On Wells
+Test 7 it reproduced the results above to the decimal: XVIO extent 4.30 / 7.21 / 1.55 m and start-end distance
+2.61 m; EKLT extent 296.4 / 130.3 / 26.7 m and start-end distance 324.2 m; the unpatched EKLT crashes after about 5 s
+on a feature 0.5-0.85 px above the image. The build environment of this repository is therefore not the cause.
+Choices both setups share because the published code leaves no alternative (`x_events` `fe2facf`, Eigen 3.4.0, the
+public replacements for the JPL-internal dependencies, Ubuntu 20.04 + ROS Noetic) are not covered by this comparison.
+
+Clue found in both setups: the EKLT run's gyroscope bias estimate is already -4.4 / -14.1 / 7.2 deg/s after 3 s and
+ends at -4.2 / -17.6 / 6.4 deg/s, while XVIO stays within about 2.6 deg/s. The first seconds are those at the
+half-saturated cave exit, where EKLT tracks deviate by 12-50 px from KLT on the frames.
+
+Note on the evaluation script: `evaluate.py` does not check the exit status of the C++ `evaluate`; a run that crashed
+still produces plots from partial data, so each run's console log must be checked.
+
+## 7. Open points
 
 - Code version or input? Only the Event Camera Dataset (RPG, DAVIS 240C, motion capture) has published EKLT-VIO numbers
   per sequence, obtained with raw frames (paper Table II, e.g. boxes_6dof 0.84%, poster_6dof 0.35%, average 0.54%).
