@@ -25,6 +25,33 @@ Performance evaluation for (range-) visual-inertial odometry xVIO framework.
 Provides an extensive toolset to evaluate frontend and backend accuracy (i.e. pose and feature tracking) as well as 
 computational efficiency, such as realtime factor, CPU and memory usage.
 
+### Quick start with Docker (any Linux host)
+
+ROS Noetic is only available for Ubuntu 20.04, so on newer hosts use the provided container. It ships ROS Noetic, the
+X library with event-based frontends ([jpl-x/x_events](https://github.com/jpl-x/x_events)), all catkin dependencies 
+and the Python requirements. This repository is mounted into the container, so edits on the host are picked up directly.
+
+```bash
+docker/run.sh                       # first run builds the image (~15-20 min, ceres is compiled from source)
+# inside the container:
+catkin build x_evaluate && source devel/setup.bash
+python3 src/x_evaluate/test/evaluate.py --configuration src/x_evaluate/test/evaluate_wells_test5.yaml \
+  --output_folder /data/_out --dataset_dir /data --frontend EKLT --name "EKLT"
+```
+
+Datasets are read from `../data` (override with `XVIO_DATASET_DIR=/path/to/datasets docker/run.sh`) and mounted at
+`/data`; e.g. extract `wells_cave.zip` there so that `../data/wells_cave/wells_test1.bag` exists. To modify the X 
+library itself, clone `x_events` (branch `events`) on the host, apply `docker/patches/*.patch` with `git apply`, and 
+start with `X_SRC=/path/to/x_events docker/run.sh`.
+
+Notes:
+- The public Wells cave bags only contain `/dvs/image_raw`, while most entries in `test/evaluate_wells*.yaml` use 
+  `/dvs/image_reconstructions` (E2VID reconstructions that were not published). With that topic EKLT receives no 
+  images and drops all events; switch the entry's `image_topic` to `/dvs/image_raw` (as `test/evaluate_wells_dop.yaml`
+  does for Wells Test 5 and 15).
+- `docker/patches/x_events-clamp-feature-tile.patch` fixes a segfault in `x_events` when an EKLT feature drifts 
+  slightly outside the image (its tile row underflowed and indexed past a per-tile array).
+
 ### Dependencies
 
 The library has been tested only on Ubuntu 20.04 with Ros Noetic. Although no roscore is needed, feature tracking 

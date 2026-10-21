@@ -1,0 +1,5 @@
+*
+!dependencies.yaml
+!requirements.txt
+!docker/entrypoint.sh
+!docker/patches

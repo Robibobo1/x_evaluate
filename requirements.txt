@@ -1,5 +1,5 @@
 numpy>=1.19.2
-matplotlib>=3.3.4
+matplotlib>=3.3.4,<3.6  # 3.6+ raises on tight_layout() after colorbars (plots.py)
 envyaml>=1.7
 pyyaml>=5.4.1
 pandas>=1.2.3
@@ -12,3 +12,6 @@ klampt>=0.8.7
 evo>=1.13.5
 pygame>=2.0.1
 unrealcv>=0.3.10
+tabulate
+orjson
+openpyxl

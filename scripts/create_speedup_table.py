@@ -14,7 +14,7 @@ def create_rtf_table(s: EvaluationDataSummary):
 
     datasets = s.data.keys()
 
-    data = np.empty((len(datasets), 4), dtype=np.float)
+    data = np.empty((len(datasets), 4), dtype=float)
     i = 0
     for k in s.data.keys():
         stats_func = get_common_stats_functions()

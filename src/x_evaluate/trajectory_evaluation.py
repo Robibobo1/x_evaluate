@@ -112,7 +112,7 @@ def get_relative_errors_wrt_traveled_dist(s: EvaluationDataSummary):
 def create_trajectory_result_table_wrt_traveled_dist(s: EvaluationDataSummary):
     traveled_dist, pos_errors, rot_errors, yaw_errors = get_relative_errors_wrt_traveled_dist(s)
 
-    data = np.empty((len(pos_errors), 6), dtype=np.float)
+    data = np.empty((len(pos_errors), 6), dtype=float)
     i = 0
     for k, v in pos_errors.items():
         abs_pos_error = np.round(v*traveled_dist[k]/100, 2)
@@ -140,7 +140,7 @@ def create_trajectory_completion_table(s: EvaluationDataSummary):
                                                                                                  "length [m]")]
     index = pd.MultiIndex.from_tuples(index_columns, names=["Evaluation Run", "Metric"])
 
-    data = np.empty((len(s.data.items()), 3), dtype=np.float)
+    data = np.empty((len(s.data.items()), 3), dtype=float)
     i = 0
     for k, v in s.data.items():
         gt_length = v.trajectory_data.traj_gt.timestamps[-1] - v.trajectory_data.traj_gt.timestamps[0]
