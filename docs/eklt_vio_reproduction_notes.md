@@ -65,6 +65,8 @@ are marked as such.
 | EKLT-VIO, `eklt_tracking_quality=0.6` | Wells Test 7 | Diverges (289 m) |
 | EKLT-VIO, iteration limit fixed | Wells Test 7 | Diverges (499 m) |
 | EKLT-VIO, both | Wells Test 7 | Diverges (413 m) |
+| EKLT-VIO, authors' last Wells update settings (`every-n-msec-with-events`, 12 ms, `latest-event-ts`) | Wells Test 7 | Diverges (431 m) |
+| EKLT-VIO, base detector values instead of the per-sequence ones flagged "most likely wrong" | Wells Test 7 | Diverges (198 m) |
 | EKLT-VIO | Wells Test 5 (30 s) | Diverges (kilometres) |
 
 Same bag, calibration, initial state and filter for KLT-VIO and EKLT-VIO: the data and calibration are usable, the
@@ -82,8 +84,11 @@ position error over a 26.7 m flight; EKLT-VIO diverges at liftoff, where its tra
   Reproducing them with the published code would show whether the code is sound and the Wells / MVSEC failures come
   from the input (raw frames instead of E2VID) and parameters, or whether the published code itself differs. The RPG
   download server (`download.ifi.uzh.ch`) has failed TLS handshakes since 2026-10-21.
-- Not yet tested: the authors' last Wells update settings (12 ms fixed rate, latest-event timestamp) and the Wells
-  detector values before the "most likely wrong" commit.
+- All EKLT-VIO variants above stay within a few metres for the first ~3 s, are 20-45 m off after 9 s and then run away;
+  none of the configuration changes traceable in the authors' history changes this. Remaining explanations: the input
+  (raw frames instead of E2VID), the code version, or the build environment (Ceres, Eigen, OpenCV versions, which only
+  the EKLT path depends on in this way; the KLT-VIO runs with the same build are plausible). An independent build is
+  planned to check the last point.
 
 ## Reproduction
 
