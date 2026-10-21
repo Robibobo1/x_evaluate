@@ -78,6 +78,15 @@ def calculate_rpe_errors_for_pairs_at_different_distances(distances, trajectory_
     return translational_errors, rotational_errors
 
 
+def yaw_errors_deg(traj_gt, traj_est):
+    # absolute yaw difference per pose (replaces PoseRelation.yaw_rotation_deg, which upstream evo does not provide)
+    def yaw(traj):
+        w, x, y, z = traj.orientations_quat_wxyz.T
+        return np.arctan2(2 * (w * z + x * y), 1 - 2 * (y ** 2 + z ** 2))
+    diff = yaw(traj_est) - yaw(traj_gt)
+    return np.abs(np.rad2deg(np.arctan2(np.sin(diff), np.cos(diff))))
+
+
 def get_relative_errors_wrt_traveled_dist(s: EvaluationDataSummary):
     pos_errors = dict()
     rot_errors = dict()
@@ -88,14 +97,12 @@ def get_relative_errors_wrt_traveled_dist(s: EvaluationDataSummary):
             continue
         position_metric = metrics.APE(metrics.PoseRelation.translation_part)
         orientation_metric = metrics.APE(metrics.PoseRelation.rotation_angle_deg)
-        yaw_metric = metrics.APE(metrics.PoseRelation.yaw_rotation_deg)
 
-        yaw_metric.process_data((d.trajectory_data.traj_gt_synced, d.trajectory_data.traj_est_aligned))
-        result = yaw_metric.get_result()
+        yaw_error_array = yaw_errors_deg(d.trajectory_data.traj_gt_synced, d.trajectory_data.traj_est_aligned)
 
         pos_error = np.mean(d.trajectory_data.ate_errors[str(position_metric)]) / d.trajectory_data.traj_gt.distances[-1]
         deg_error = np.mean(d.trajectory_data.ate_errors[str(orientation_metric)]) / d.trajectory_data.traj_gt.distances[-1]
-        yaw_error = np.mean(result.np_arrays['error_array']) / d.trajectory_data.traj_gt.distances[-1]
+        yaw_error = np.mean(yaw_error_array) / d.trajectory_data.traj_gt.distances[-1]
 
         pos_error = np.round(np.mean(pos_error*100), 2)  # in percent
         deg_error = np.round(np.mean(deg_error), 2)
