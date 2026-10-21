@@ -69,9 +69,51 @@ are marked as such.
 | EKLT-VIO, base detector values instead of the per-sequence ones flagged "most likely wrong" | Wells Test 7 | Diverges (198 m) |
 | EKLT-VIO | Wells Test 5 (30 s) | Diverges (kilometres) |
 
-Same bag, calibration, initial state and filter for KLT-VIO and EKLT-VIO: the data and calibration are usable, the
-failure is specific to the EKLT path. On Wells Test 7, EKLT tracks agree with KLT on the frames to 1-3 px (median)
-between 4.5 and 12 s, but deviate by 12-50 px in the first 4.5 s at the half-saturated cave exit.
+Same bag, calibration, initial state and filter for KLT-VIO and EKLT-VIO on Test 7: the data and calibration are
+usable there, the failure is specific to the EKLT path. On Wells Test 7, EKLT tracks agree with KLT on the frames to
+1-3 px (median) between 4.5 and 12 s, but deviate by 12-50 px in the first 4.5 s at the cave exit, where 21-28% of the
+pixels are saturated (1.5-4.5 s).
+
+### Later start on Wells Test 7
+
+| Run (Wells Test 7, started at 5 s) | Distance from the 5 s position at 7 / 12 / 21 s | Gyro bias at 21 s [deg/s] |
+|---|---|---|
+| EKLT-VIO, full run from 0 s (reference) | 9.8 / 65.5 / 319 m | -4.2 / -17.6 / 6.4 |
+| EKLT-VIO, state (incl. biases) of the KLT-VIO run at 5 s | 0.7 / 1.4 / 2.7 m | -2.1 / -1.7 / 1.4 |
+| EKLT-VIO, same but biases zero | 0.7 / 1.4 / 5.9 m | -2.2 / -3.3 / 1.6 |
+| KLT-VIO, biases zero | 0.6 / 1.0 / 0.4 m | -1.6 / 3.8 / -1.8 |
+
+Started after the saturated exit, EKLT-VIO stays bounded and estimates plausible biases on its own. Position, velocity
+and orientation still come from KLT-VIO in these runs, so the initial motion state is not isolated from the images.
+Without ground truth, bounded does not mean accurate: the from-5 s trajectories stay within a few metres but differ in
+shape from each other and from the full KLT-VIO run.
+
+### Other Wells sequences
+
+Exposure of the raw frames differs widely between sequences: e.g. Test 5 is black (> 90% of pixels at most 5) for the
+first 20 s and from 34 s on, Test 2 for 38-54 s, Test 8 for about 40 s in the middle; Test 17 is usable for its first
+~44 s. Runs from the start with the authors' configuration entries (raw frames):
+
+| Sequence | Frames | KLT-VIO | EKLT-VIO |
+|---|---|---|---|
+| Test 17, 0-40 s | usable throughout | bounded, max 6.9 m | diverges (19 m at 13 s, 521 m at 40 s) with a plausible gyro bias (-1.1 / 2.6 / 0.7 deg/s) |
+| Test 18, 25 s | saturated for the first 2 s | diverges (172 m, gyro bias 12 deg/s) | bounded, max 14 m |
+| Test 2, 0-60 s | light, dark 38-54 s, light | bounded (max 19 m, ends 3.5 m from start); 0 SLAM features while dark | diverges from the start (78 m at 10 s); keeps 6-10 SLAM features while dark |
+| Test 8, 85 s | light, black ~40 s, light | bounded while light, 0 features while dark, then diverges | diverges in the light part (98 m at 14 s); keeps 8-13 SLAM features while dark |
+| Test 5, 22-34 s (only usable stretch), start from gravity, v = 0 | usable, some saturation | diverges (826 m) | diverges (506 m) |
+
+Conclusions from these runs:
+- Saturated frames at the start explain the Test 7 failure plausibly but are not the general cause: EKLT-VIO diverges
+  on the well-exposed Test 17 from a normal start, and stays bounded on Test 18 despite a saturated start (where
+  KLT-VIO diverges). On Test 17 it fails differently, with a steady phantom acceleration (about 0.65 m/s^2, quadratic
+  position growth) and a plausible gyro bias.
+- EKLT keeps tracking features through dark stretches with events only (Tests 2 and 8), where KLT-VIO has none, but
+  its pose estimate had already diverged in those runs.
+- On public raw-frame Wells data with the authors' settings, EKLT-VIO stayed bounded in 2 of 6 conditions tested from a
+  normal or later start, KLT-VIO in 4 of 6. Test 5's mid-sequence start is inconclusive (both diverge).
+- EKLT needs a frame for feature detection and for each feature's template; events only track existing features. On
+  sequences that start in the dark (Tests 4, 5, 11-15), raw frames give EKLT nothing to start from, which is why the
+  paper used E2VID reconstructions there.
 
 Also observed on MVSEC indoor_flying1 (drone, motion capture ground truth; work on branch `mvsec`): KLT-VIO 0.88 m mean
 position error over a 26.7 m flight; EKLT-VIO diverges at liftoff, where its tracks on a fine-grained carpet slip by
@@ -90,7 +132,8 @@ public replacements for the JPL-internal dependencies, Ubuntu 20.04 + ROS Noetic
 
 Clue found in both setups: the EKLT run's gyroscope bias estimate is already -4.4 / -14.1 / 7.2 deg/s after 3 s and
 ends at -4.2 / -17.6 / 6.4 deg/s, while XVIO stays within about 2.6 deg/s. The first seconds are those at the
-half-saturated cave exit, where EKLT tracks deviate by 12-50 px from KLT on the frames.
+half-saturated cave exit, where EKLT tracks deviate by 12-50 px from KLT on the frames. This mechanism is not the only
+one: on Test 17 (section 5) EKLT-VIO diverges with a plausible gyro bias.
 
 Note on the evaluation script: `evaluate.py` does not check the exit status of the C++ `evaluate`; a run that crashed
 still produces plots from partial data, so each run's console log must be checked.
@@ -102,11 +145,13 @@ still produces plots from partial data, so each run's console log must be checke
   Reproducing them with the published code would show whether the code is sound and the Wells / MVSEC failures come
   from the input (raw frames instead of E2VID) and parameters, or whether the published code itself differs. The RPG
   download server (`download.ifi.uzh.ch`) has failed TLS handshakes since 2026-10-21.
-- All EKLT-VIO variants above stay within a few metres for the first ~3 s, are 20-45 m off after 9 s and then run away;
-  none of the configuration changes traceable in the authors' history changes this. Remaining explanations: the input
-  (raw frames instead of E2VID), the code version, or the build environment (Ceres, Eigen, OpenCV versions, which only
-  the EKLT path depends on in this way; the KLT-VIO runs with the same build are plausible). An independent build is
-  planned to check the last point.
+- On Wells Test 7, none of the configuration changes traceable in the authors' history prevents the divergence, and
+  the independent build (section 6) rules out this repository's build environment. Remaining explanations: the input
+  (raw frames instead of E2VID; for the dark sequences E2VID is required to have any usable image) and the code
+  version. The cause of the steady phantom acceleration on Test 17 is not investigated.
+- The EKLT tracker is open loop: `EKLTVIO` only passes it images and events, it never reads the filter state. Its
+  tracks and its computational load are therefore the same whether or not the filter diverges, so a component-level
+  evaluation of the tracker (e.g. of an accelerated implementation) does not depend on the open points above.
 
 ## Reproduction
 
