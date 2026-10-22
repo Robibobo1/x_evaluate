@@ -8,6 +8,7 @@ import rerun as rr
 import rerun.blueprint as rrb
 import yaml
 from rosbag import Bag
+from scipy.spatial.transform import Rotation
 from tqdm import tqdm
 
 from render_events_video import image_to_bgr
@@ -30,6 +31,33 @@ def read_poses(csv_file, prefix):
     df = df[(df['t'] != -1) & df[columns].notna().all(axis=1)]
     df = df.drop_duplicates('t', keep='last').sort_values('t')
     return df['t'].to_numpy(), df[columns].to_numpy()
+
+
+def read_landmarks(run_folder):
+    """Vision update times of a run and its slam_landmarks.csv (world coordinates of the SLAM features after each
+    update), or None if the run was made before evaluate wrote that file."""
+    landmarks_csv = os.path.join(run_folder, "slam_landmarks.csv")
+    if not os.path.exists(landmarks_csv):
+        return None, None
+    df_poses = pd.read_csv(os.path.join(run_folder, "pose.csv"), delimiter=";")
+    update_times = np.unique(df_poses.loc[(df_poses['update_modality'] != 'IMU') & (df_poses['t'] != -1), 't'])
+    landmarks = pd.read_csv(landmarks_csv, delimiter=";")
+    return update_times, landmarks[np.isfinite(landmarks[['p_x', 'p_y', 'p_z']]).all(axis=1)]
+
+
+def landmark_depths(landmarks, t_est, est, p_ic, q_ic):
+    """Per update time, the median depth (along the optical axis) of the landmarks in front of the camera."""
+    q_ic = Rotation.from_quat(q_ic[1:] + q_ic[:1])
+    times, depths = [], []
+    for t, group in landmarks.groupby('t'):
+        pose = est[np.searchsorted(t_est, t, side='right') - 1]
+        q_wi = Rotation.from_quat(pose[3:])
+        p_wc = pose[:3] + q_wi.apply(p_ic)
+        z = (q_wi * q_ic).inv().apply(group[['p_x', 'p_y', 'p_z']].to_numpy() - p_wc)[:, 2]
+        if np.any(z > 0):
+            times.append(t)
+            depths.append(np.median(z[z > 0]))
+    return np.array(times), np.array(depths)
 
 
 def resample(times, poses, rate):
@@ -75,12 +103,21 @@ def log_trajectory(entity, label, times, poses, color, t0, args):
                                                   radii=rr.Radius.ui_points(1.5)))
 
 
+def log_landmarks(entity, update_times, landmarks, color, t0):
+    """The SLAM landmarks after each vision update; an update that leaves no SLAM feature clears them."""
+    positions = {t: group[['p_x', 'p_y', 'p_z']].to_numpy() for t, group in landmarks.groupby('t')}
+    for t in update_times:
+        rr.set_time_seconds("time", t - t0)
+        rr.log(entity, rr.Points3D(positions.get(t, np.zeros((0, 3))), colors=color, radii=rr.Radius.ui_points(4.0)))
+
+
 def main():
     parser = argparse.ArgumentParser(description="Writes a Rerun recording (.rrd) of one or more runs: ground truth and "
-                                                 "estimated trajectories in 3D, the camera of the first run with the "
-                                                 "undistorted frame in its frustum, and the EKLT features of the first "
-                                                 "run in the camera view. Open it with the Rerun viewer of version "
-                                                 "0.22: rerun <file>.rrd")
+                                                 "estimated trajectories in 3D, the SLAM landmarks of each run (if it "
+                                                 "has slam_landmarks.csv), the camera of the first run with the "
+                                                 "undistorted frame in its frustum at the depth of the landmarks, and "
+                                                 "the EKLT features of the first run in the camera view. Open it with "
+                                                 "the Rerun viewer of version 0.22: rerun <file>.rrd")
     parser.add_argument('--input_folders', nargs='+', required=True,
                         help="run folders written by evaluate.py (pose.csv, gt.csv, params.yaml, eklt_tracks.csv), "
                              "e.g. /data/runs/rpg/eklt_reproduction/shapes_translation/001_shapes_translation")
@@ -90,8 +127,11 @@ def main():
     parser.add_argument('--events_topic', type=str, default='/dvs/events', help="only used for the time origin")
     parser.add_argument('--image_topic', type=str, default='/dvs/image_raw')
     parser.add_argument('--output', type=str, required=True, help="output .rrd file")
-    parser.add_argument('--image_distance', type=float, default=1.0,
-                        help="distance of the frame in front of the camera in the 3D view [m]")
+    parser.add_argument('--image_distance', type=float,
+                        help="fixed distance of the frame in front of the camera in the 3D view [m] (default: median "
+                             "depth of the SLAM landmarks of the first run over --depth_window, 1 m if the run has "
+                             "no slam_landmarks.csv)")
+    parser.add_argument('--depth_window', type=float, default=0.5, help="rolling median window of the depth [s]")
     parser.add_argument('--pose_rate', type=float, default=100.0, help="rate of the current poses [Hz]")
     parser.add_argument('--path_rate', type=float, default=50.0, help="points per second of the trajectory lines")
     parser.add_argument('--line_update_rate', type=float, default=10.0,
@@ -126,16 +166,36 @@ def main():
     log_trajectory("world/ground_truth", "ground truth", t_gt, gt, GT_COLOR, t0, args)
     t_start = np.inf
     for k, (folder, name) in enumerate(zip(args.input_folders, names)):
+        color = RUN_COLORS[k % len(RUN_COLORS)]
         t_est, est = read_poses(os.path.join(folder, "pose.csv"), "estimated_")
         t_start = min(t_start, t_est[0])
-        log_trajectory(F"world/{name}", name, t_est, est, RUN_COLORS[k % len(RUN_COLORS)], t0, args)
+        log_trajectory(F"world/{name}", name, t_est, est, color, t0, args)
         # the state is the IMU pose; the camera sits at p_ic, rotated by q_ic, in the IMU frame
         # (x::State::computeCameraPosition / computeCameraOrientation)
         rr.log(F"world/{name}/body/camera", rr.Transform3D(translation=params['cam1_p_ic'],
                                                             rotation=rr.Quaternion(xyzw=q_ic[1:] + q_ic[:1])),
                static=True)
-        rr.log(F"world/{name}/body/camera/image", rr.Pinhole(image_from_camera=camera_matrix, resolution=size,
-                                                              image_plane_distance=args.image_distance), static=True)
+
+        update_times, landmarks = read_landmarks(folder)
+        if landmarks is not None:
+            log_landmarks(F"world/{name}/landmarks", update_times, landmarks, color, t0)
+
+        def pinhole(distance):
+            return rr.Pinhole(image_from_camera=camera_matrix, resolution=size, image_plane_distance=distance)
+
+        if k > 0 or args.image_distance is not None or landmarks is None:
+            rr.log(F"world/{name}/body/camera/image", pinhole(args.image_distance or 1.0), static=True)
+        else:
+            # frame of the first run at the median depth of its landmarks; logged over time, as a static pinhole
+            # would hide the temporal ones
+            t_depth, depths = landmark_depths(landmarks, t_est, est, params['cam1_p_ic'], q_ic)
+            distance = 1.0
+            for t in np.arange(t_est[0], t_est[-1], 1.0 / args.line_update_rate):
+                recent = depths[(t_depth > t - args.depth_window) & (t_depth <= t)]
+                if len(recent):
+                    distance = float(np.median(recent))
+                rr.set_time_seconds("time", t - t0)
+                rr.log(camera_entity, pinhole(distance))
 
     print("Logging frames")
     with Bag(args.input_bag) as bag:
