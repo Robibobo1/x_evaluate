@@ -8,8 +8,8 @@
 # Environment:
 #   DATA_DIR          host data folder, mounted at /data (default: ../data next to this repo); datasets are read from
 #                     its datasets/ subfolder, run outputs go to runs/
-#   X_SRC             optional host checkout of jpl-x/x_events (branch `events`, with docker/patches/*.patch applied),
-#                     mounted over /catkin_ws/src/x to hack on the X library
+#   X_SRC             optional host checkout of the X library (Robibobo1/x_events, branch `accelerator`), mounted over
+#                     /catkin_ws/src/x to work on it
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

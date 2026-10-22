@@ -1,9 +1,11 @@
 repositories:
-  # X library fork with the event-based frontends (EKLT, HASTE, events); catkin package name is `x`
+  # X library fork with the event-based frontends (EKLT, HASTE, events); catkin package name is `x`. This project's fork
+  # of jpl-x/x_events: branch `accelerator` = upstream branch `events` (upstream `master` is plain x without the event
+  # frontends) plus this project's changes
   x:
     type: git
-    url: https://github.com/jpl-x/x_events.git
-    version: events  # `master` there is plain upstream x without the event frontends
+    url: https://github.com/Robibobo1/x_events.git
+    version: accelerator
   rpg_dvs_ros:  # only dvs_msgs is needed
     type: git
     url: https://github.com/uzh-rpg/rpg_dvs_ros.git

@@ -44,9 +44,9 @@ are attributed to input and tuning, not to the code.
 
 - **Feature tile out of range (crash).** `TiledImage::setTileForFeature` computes an unsigned row index that underflows
   when an EKLT feature lies slightly above the image (y between -1 and 0 px); the index is then used on a per-tile
-  array in `TrackManager::manageTracks`. Fixed by clamping the tile to the grid,
-  `docker/patches/x_events-clamp-feature-tile.patch`. Verified neutral: the 5113 poses before the original crashes are
-  identical with and without the patch.
+  array in `TrackManager::manageTracks`. Fixed by clamping the tile to the grid (`edf792e`, first commit of the
+  `accelerator` branch of this project's `x_events` fork). Verified neutral: the 5113 poses before the original crashes
+  are identical with and without the fix.
 - **Optimizer iteration limit ignored.** `EKLTVIO` constructs the EKLT tracker with default `Params`, whose
   `eklt_max_num_iterations` is 10; `Optimizer::setParams` later stores the real parameters but never updates the Ceres
   `solver_options`. All configs ask for 25 iterations, the solver stops at 10. On Wells Test 7, 98.6% of the per-event

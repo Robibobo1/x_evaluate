@@ -36,9 +36,7 @@ WORKDIR /catkin_ws
 # Fetch and pre-build the X library and its catkin dependencies (ceres is compiled from source, takes a while).
 # x_evaluate itself is bind-mounted at runtime into /catkin_ws/src/x_evaluate, see docker/run.sh.
 COPY --chown=dev:dev dependencies.yaml /tmp/dependencies.yaml
-COPY --chown=dev:dev docker/patches /tmp/patches
 RUN vcs import --shallow src < /tmp/dependencies.yaml \
-    && git -C src/x apply /tmp/patches/x_events-clamp-feature-tile.patch \
     && find src/rpg_dvs_ros -mindepth 1 -maxdepth 1 -type d ! -name dvs_msgs -exec touch {}/CATKIN_IGNORE \; \
     && catkin init \
     && catkin config --extend /opt/ros/noetic --cmake-args -DCMAKE_BUILD_TYPE=Release \

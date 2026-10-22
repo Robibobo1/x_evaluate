@@ -28,8 +28,9 @@ computational efficiency, such as realtime factor, CPU and memory usage.
 ### Quick start with Docker (any Linux host)
 
 ROS Noetic is only available for Ubuntu 20.04, so on newer hosts use the provided container. It ships ROS Noetic, the
-X library with event-based frontends ([jpl-x/x_events](https://github.com/jpl-x/x_events)), all catkin dependencies 
-and the Python requirements. This repository is mounted into the container, so edits on the host are picked up directly.
+X library with event-based frontends ([Robibobo1/x_events](https://github.com/Robibobo1/x_events), branch
+`accelerator`: [jpl-x/x_events](https://github.com/jpl-x/x_events) branch `events` plus this project's changes), all
+catkin dependencies and the Python requirements. This repository is mounted into the container, so edits on the host are picked up directly.
 
 The reference data is the [Event Camera Dataset](https://rpg.ifi.uzh.ch/davis_data.html) (DAVIS 240C: events, frames,
 IMU and motion-capture ground truth), on which the paper's EKLT-VIO results (Table II) are reproduced. Download the 10
@@ -60,11 +61,11 @@ a subfolder with plots and `trajectory_tracking_summary.xlsx`; the expected mean
 
 The host folder `../data` (override with `DATA_DIR=/path/to/data docker/run.sh`) is mounted at `/data`: datasets are
 read from its `datasets/` subfolder (one folder per dataset, as named in the configs, e.g. `rpg_davis_data/`) and run
-outputs go to `runs/`. To modify the X library itself, clone `x_events` (branch `events`) on the host, apply
-`docker/patches/*.patch` with `git apply`, and start with `X_SRC=/path/to/x_events docker/run.sh`.
+outputs go to `runs/`. To modify the X library itself, clone the fork (branch `accelerator`) next to this repository
+and start with `X_SRC=../x_events docker/run.sh`.
 
 Notes:
-- `docker/patches/x_events-clamp-feature-tile.patch` fixes a segfault in `x_events` when an EKLT feature drifts 
+- The first commit of the fork's `accelerator` branch fixes a segfault in `x_events` when an EKLT feature drifts
   slightly outside the image (its tile row underflowed and indexed past a per-tile array).
 - `evaluate.py` does not check whether the C++ `evaluate` crashed; check each run's console output.
 - Most Wells Cave configs (`test/evaluate_wells*.yaml`) expect `/dvs/image_reconstructions`, E2VID images that were
