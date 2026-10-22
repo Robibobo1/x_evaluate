@@ -1,0 +1,134 @@
+@startuml 04_activity_data_flow
+' EKLT-VIO data flow, from one event message in the rosbag to a pose: every function (rounded box),
+' the data it produces (square box), and the class that runs it (lane). Time flows downwards.
+'
+' Static code analysis, no run data. Code: jpl-x/x_events, branch events, commit fe2facf
+' (inside the container: /catkin_ws/src/x), plus test/evaluate.cpp of this repo.
+' Sources, in the order of the diagram:
+'   test/evaluate.cpp:52, :317                       msgToEvents, processEventsMeasurement call
+'   src/x/eklt/eklt_vio.cpp:164                      EKLTVIO::processEventsMeasurement
+'   src/x/eklt/async_feature_tracker.cpp:91          AsyncFeatureTracker::processEvents
+'   src/x/eklt/eklt_tracker.cpp:87                   EkltTracker::updatePatch
+'   include/x/eklt/eklt_patch.h:65, :81, :114         contains, insert, getEventFrame
+'   src/x/eklt/optimizer.cpp:71                      Optimizer::optimizeParameters (inside: see 08)
+'   src/x/eklt/eklt_tracker.cpp:178                  setBatchSize
+'   src/x/eklt/async_feature_interpolator.cpp:110    getMatchListFromPatches
+'   src/x/ekf/ekf.cpp:153, :201                      processUpdateMeasurement, repropagateFromStateAtIdx
+'   src/x/ekf/updater.cpp:21, :59                    Updater::update, applyUpdate
+'   src/x/eklt/eklt_vio_updater.cpp:47, :80, :91, :270   preProcess, preUpdate, constructUpdate, postUpdate
+'   src/x/vio/track_manager.cpp:90                   TrackManager::manageTracks
+' Parameter names in the guards come from params_*.yaml (eklt_*), they are configuration, not data.
+' View: VS Code PlantUML extension, Alt+D.
+title EKLT-VIO data flow for one event message\nrounded box = function, square box = data it produces, lane = class running it
+
+|evaluate.cpp|
+start
+#E3F0FB:dvs_msgs/EventArray read from the rosbag]
+:msgToEvents()
+evaluate.cpp:52;
+#E3F0FB:x::EventArray
+vector of Event: x, y, ts, polarity]
+|EKLTVIO|
+:processEventsMeasurement(events)
+eklt_vio.cpp:164;
+|AsyncFeatureTracker|
+repeat :processEvents(): take the next Event e\nasync_feature_tracker.cpp:91;
+  |EkltTracker / EkltPatch|
+  :updatePatch(patch, e), for every active patch
+  keeps e only if abs(e.x - cx) and abs(e.y - cy) are at most h = (P - 1) / 2
+  and e.ts is not older than the patch
+  eklt_tracker.cpp:87;
+  #E3F0FB:EkltPatch::event_buffer_
+  deque of Event, newest first, at most batch_size_]
+  if (event_counter_ reached batch_size_ ?) then (yes)
+    :getEventFrame(): each buffered event except the oldest adds
+    +1 or -1 to the 4 pixels around it, with bilinear weights
+    eklt_patch.h:114;
+    #E3F0FB:event frame: P x P matrix of double
+    timestamp t = mean of the newest and oldest buffered events]
+    |Optimizer + Ceres|
+    :optimizeParameters(frame, patch, t)
+    Ceres solve of ErrorRotation, details in 08
+    optimizer.cpp:71;
+    note right
+      also reads the reference log-gradient
+      of the frame the patch was detected in
+      (OptimizerDatum, built in 06)
+    end note
+    #E3F0FB:theta, tx, ty, phi, final_cost]
+    |EkltTracker / EkltPatch|
+    :warping_ = getWarp(theta, tx, ty), flow_angle_ = phi
+    tracking_quality_ = 1 - final_cost / 2
+    updateCenter(t): centre = inverse(warping_) * init_center_;
+    #E3F0FB:AsyncPatch::track_hist_ gets (t, centre in pixels)]
+    :setBatchSize(): next batch_size_ from the gradient and the flow
+    discard the patch if quality is below eklt_tracking_quality
+    or the centre left the image
+    eklt_tracker.cpp:178;
+  endif
+  |AsyncFeatureTracker|
+  if (eklt_ekf_update_every_n events since the last MatchList\nand at least one patch moved?) then (yes)
+    |AsyncFeatureInterpolator|
+    :getMatchListFromPatches()
+    t* = newest patch time
+    each patch: extrapolate track_hist_ linearly to t*, undistort
+    previous = the Feature this patch got last time
+    async_feature_interpolator.cpp:110;
+    #E3F0FB:x::MatchList, kept until the end of the message
+    one Match(previous, current) per patch
+    Features in undistorted pixels]
+  endif
+  |AsyncFeatureTracker|
+repeat while (events left in the message?) is (yes)
+->no;
+#E3F0FB:vector of MatchList, returned to EKLTVIO]
+|EKLTVIO|
+repeat :take the next MatchList;
+  :wrap it with t* + time_offset and the current frame;
+  #E3F0FB:x::VioMeasurement]
+  |Ekf|
+  :processUpdateMeasurement(): closestIdx(t*) in the StateBuffer
+  ekf.cpp:153;
+  #E3F0FB:copy of the buffered x::State closest to t*
+  prior from IMU propagation, see 06]
+  |EkltVioUpdater|
+  :update() -> preProcess()
+  eklt_vio_updater.cpp:47;
+  |TrackManager / StateManager|
+  :TrackManager::manageTracks()
+  attach each Match to the track whose last Feature equals match.previous,
+  grow or start opportunistic tracks, promote long ones to SLAM or MSCKF,
+  then Camera::normalize()
+  track_manager.cpp:90;
+  #E3F0FB:TrackLists in normalised image coordinates
+  SLAM tracks, MSCKF tracks, new SLAM tracks (MSCKF-initialised or depth prior)
+  + indexes of lost SLAM tracks]
+  :preUpdate() -> StateManager::manage()
+  slide the pose window, remove lost SLAM features
+  from the state and the covariance
+  eklt_vio_updater.cpp:80;
+  |EkltVioUpdater|
+  :constructUpdate(): stack the MsckfUpdate, MsckfSlamUpdate
+  and SlamUpdate rows, then applyQRDecomposition()
+  eklt_vio_updater.cpp:91;
+  #E3F0FB:H (rows x n_err), res (rows x 1), R (rows x rows)]
+  :Updater::applyUpdate()
+  S = H P H^T + R, K = P H^T S^-1
+  correction = K res, P = (I - K H) P, State::correct()
+  updater.cpp:59;
+  #E3F0FB:corrected x::State]
+  :postUpdate(): insert the new SLAM features
+  into the state and the covariance
+  eklt_vio_updater.cpp:270;
+  |Ekf|
+  :repropagateFromStateAtIdx(): write the state back,
+  re-propagate every newer buffered state with its IMU sample
+  ekf.cpp:201;
+  #E3F0FB:newest x::State]
+  |EKLTVIO|
+repeat while (MatchLists left?) is (yes)
+->no;
+|evaluate.cpp|
+:addPose(): one row of pose.csv;
+stop
+@enduml

@@ -1,0 +1,195 @@
+@startuml 03_class_backend
+' xVIO backend classes used by EKLT-VIO: the EKF, its updater and the visual update builders.
+'
+' Static code analysis, no run data. Code: jpl-x/x_events, branch events, commit fe2facf
+' (inside the container: /catkin_ws/src/x).
+' Sources:
+'   include/x/ekf/ekf.h, src/x/ekf/ekf.cpp                 Ekf
+'   include/x/ekf/propagator.h, state_buffer.h             Propagator, StateBuffer
+'   include/x/ekf/updater.h, src/x/ekf/updater.cpp         Updater (update order: updater.cpp:21)
+'   include/x/eklt/eklt_vio_updater.h, .cpp                EkltVioUpdater
+'   include/x/vio/track_manager.h, src/x/vio/track_manager.cpp   TrackManager
+'   include/x/vio/state_manager.h                          StateManager
+'   include/x/vio/update.h, msckf_update.h, slam_update.h, msckf_slam_update.h,
+'   range_update.h, solar_update.h                         Update and its subclasses
+'   include/x/vision/triangulation.h                       Triangulation
+'   src/x/eklt/eklt_vio_updater.cpp:186, :223              range and sun updates need a timestamped
+'                                                          measurement, evaluate.cpp never sets one
+'
+' Notation: solid diamond = composition (owns), dashed arrow = builds or uses, triangle = inheritance.
+' View: VS Code PlantUML extension, Alt+D. "!pragma layout smetana" = built-in layout, no Graphviz needed.
+!pragma layout smetana
+title xVIO backend classes used by EKLT-VIO
+
+class "EKLTVIO" as EkltVioStub <<see 02>>
+class "State" as StateStub <<see 01>>
+
+class Ekf {
+  -Propagator propagator_
+  -Updater& updater_
+  -StateBuffer state_buffer_
+  -InitStatus init_status_ : not initialised, stand-by, initialised
+  -double a_m_max_ : accelerometer spike limit
+  +initializeFromState(state)
+  +processImu(t, seq, w_m, a_m) State
+  +processUpdateMeasurement() State
+  -repropagateFromStateAtIdx(state, idx) bool
+}
+
+class Propagator {
+  -gravity vector g
+  -ImuNoise imu_noise_
+  +propagateState(state_0, state_1)
+  +propagateCovariance(state_0, state_1)
+  -discreteStateTransition(dt, w, a, q) 15x15 matrix
+  -discreteProcessNoiseCov(dt, q, w, a, noise) 15x15 matrix
+  -propagateCovarianceMatrices(cov_0, f_d, q_d, cov_1)
+}
+
+class StateBuffer {
+  ring of State, size = state_buffer_size
+  -int head_idx_, tail_idx_
+  -double time_margin_
+  +closestIdx(t) int
+  +enqueueInPlace() State&
+  +getTailStateRef() State&
+  +nextIdx(idx) int
+}
+
+abstract class Updater {
+  #int iekf_iter_
+  +update(state)
+  +applyUpdate(state, H, res, R, correction, cov_update)
+  {abstract} +getTime() double
+  {abstract} #preProcess(state)
+  {abstract} #preUpdate(state) bool
+  {abstract} #constructUpdate(state, h, res, r)
+  {abstract} #postUpdate(state, correction)
+}
+note right of Updater
+  update() calls, in this order:
+  preProcess, preUpdate,
+  iekf_iter times constructUpdate + applyUpdate,
+  postUpdate (updater.cpp:21)
+end note
+
+class EkltVioUpdater {
+  -VioMeasurement measurement_
+  -TrackManager track_manager_
+  -StateManager state_manager_
+  -TrackList slam_trks_, msckf_trks_
+  -TrackList new_slam_std_trks_, new_msckf_slam_trks_
+  -vector<unsigned> lost_slam_trk_idxs_
+  -SlamUpdate slam_
+  -MsckfSlamUpdate msckf_slam_
+  -double sigma_img_, rho_0_, sigma_rho_0_
+  -int min_track_length_
+  +setMeasurement(measurement)
+  #preProcess(state)
+  #preUpdate(state) bool
+  #constructUpdate(state, h, res, r)
+  #postUpdate(state, correction)
+  -applyQRDecomposition(h, res, R)
+}
+
+class TrackManager {
+  -Camera camera_
+  -TrackList slam_trks_ : features already in the state
+  -TrackList new_slam_trks_ : features to add to the state
+  -TrackList opp_trks_ : opportunistic, not in the state
+  -TrackList msckf_trks_n_ : full-window tracks, normalised
+  -TrackList new_slam_std_trks_n_, new_slam_msckf_trks_n_
+  -vector<unsigned> lost_slam_idxs_
+  -double min_baseline_n_
+  +manageTracks(matches, cam_rots, n_poses_max, n_slam_max, min_len, img)
+  +normalizeSlamTracks(n) TrackList
+  +getMsckfTracks() TrackList
+  +getNewSlamStdTracks() TrackList
+  +getNewSlamMsckfTracks() TrackList
+  +getLostSlamTrackIndexes() vector<unsigned>
+  -checkBaseline(track, C_q_G) bool
+}
+
+class StateManager {
+  -int n_poses_max_, n_features_max_
+  -int n_poses_
+  -size_t n_features_
+  -vector<int> anchor_idxs_ : anchor pose of each SLAM feature
+  +manage(state, lost_feature_idxs)
+  +initMsckfSlamFeatures(state, init_mats, correction, sigma_img) bool
+  +initStandardSlamFeatures(state, features, sigma_img, sigma_rho_0)
+  +convertCameraAttitudesToList(state) AttitudeList
+  +convertCameraPositionsToList(state) TranslationList
+  +getAnchorIdxs() vector<int>
+  -slideWindow(atts, covariance)
+  -augmentCovariance(state, pos, covariance)
+  -reparametrizeFeatures(atts_old, covariance)
+}
+
+abstract class Update {
+  #Matrix res_
+  #Matrix jac_
+  #VectorXd cov_m_diag_
+  +getResidual() Matrix
+  +getJacobian() Matrix
+  +getCovDiag() VectorXd
+}
+
+class MsckfUpdate {
+  -Vector3dArray inliers_, outliers_
+  -processOneTrack(track, ...)
+}
+note bottom of MsckfUpdate
+  per track: triangulate, residual and
+  Jacobian for every observation of the
+  window, left nullspace projection,
+  outlier rejection
+end note
+
+class MsckfSlamUpdate {
+  -MsckfSlamMatrices init_mats_ : used to insert the feature
+  -processOneTrack(track, ...)
+}
+
+class SlamUpdate {
+  +computeInverseDepthsNew(new_trks, rho_0, ivds)
+  -processOneTrack(track, ...)
+}
+note bottom of SlamUpdate
+  per track: last observation only,
+  against the feature stored in the state
+end note
+
+class RangeUpdate <<inactive here>>
+class SolarUpdate <<inactive here>>
+
+class Triangulation {
+  -vector<Mat> projs_ : projection matrices of the window
+  -max_iter = 10, term = 1e-5 as built in constructUpdate
+  +triangulateGN(track, pt_ivd)
+  +triangulateDlt(obs1, obs2, i1, i2, pt_xyz)
+}
+
+EkltVioStub *-- Ekf
+EkltVioStub *-- EkltVioUpdater
+Ekf *-- Propagator
+Ekf *-- StateBuffer
+StateBuffer "1" *-- "state_buffer_size" StateStub
+Ekf --> Updater : updater_
+Updater <|-- EkltVioUpdater
+EkltVioUpdater *-- TrackManager
+EkltVioUpdater *-- StateManager
+EkltVioUpdater *-- SlamUpdate
+EkltVioUpdater *-- MsckfSlamUpdate
+EkltVioUpdater ..> MsckfUpdate : builds in constructUpdate
+EkltVioUpdater ..> Triangulation : builds in constructUpdate
+EkltVioUpdater ..> RangeUpdate
+EkltVioUpdater ..> SolarUpdate
+Update <|-- MsckfUpdate
+Update <|-- MsckfSlamUpdate
+Update <|-- SlamUpdate
+Update <|-- RangeUpdate
+Update <|-- SolarUpdate
+MsckfUpdate ..> Triangulation
+MsckfSlamUpdate ..> Triangulation
+@enduml

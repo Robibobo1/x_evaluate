@@ -1,0 +1,74 @@
+@startuml 08_activity_patch_optimization
+' Inside one EKLT patch optimisation: how the buffered events and the reference gradient become a new
+' warp, flow angle and quality. This is the function called in the "batch full" branch of 04 and 05.
+'
+' Static code analysis, no run data. Code: jpl-x/x_events, branch events, commit fe2facf
+' (inside the container: /catkin_ws/src/x).
+' Sources:
+'   include/x/eklt/eklt_patch.h:94-110, :114-154    updateCenter, warpPixel, getEventFrame
+'   src/x/eklt/optimizer.cpp:14-25                  solver options (DENSE_QR, nonmonotonic steps, 1 thread)
+'   src/x/eklt/optimizer.cpp:71-108                 optimizeParameters
+'   include/x/eklt/error.h:16-49                    CostFunctionConfig (norm of the event frame)
+'   include/x/eklt/error.h:51-118                   ErrorRotation: getP0, getWarp, operator(), warp
+'   include/x/eklt/error.h:121-133                  Generator: AutoDiffCostFunction<ErrorRotation, DYNAMIC, 3, 1>
+'   include/x/eklt/types.h:88-107                   OptimizerDatum: bicubic interpolator of Ix, Iy
+' Ceres defaults not overridden in optimizer.cpp: trust region minimiser with Levenberg-Marquardt.
+' View: VS Code PlantUML extension, Alt+D.
+title Inside one patch optimisation: the data of one solve\nrounded box = function, square box = data, lane = class
+
+|EkltPatch|
+start
+#E3F0FB:held by the patch: event_buffer_ (at most batch_size_ events)
+centre c = getCenter(), init_center_, warping_ (3 x 3), flow_angle_, t_init_]
+:getEventFrame()
+for every buffered event except the oldest one:
+  dx = e.x - c.x + h, dy = e.y - c.y + h, with h = (P - 1) / 2
+  add +1 or -1 (polarity) to the 4 pixels around (dx, dy), bilinear weights
+eklt_patch.h:114;
+#E3F0FB:event frame dE: P x P, double
+t = mean of the newest and the oldest buffered event timestamps]
+|Optimizer|
+:optimizeParameters(dE, patch, t)
+p0 = getP0(warping_): theta = atan2(W10, W00), tx = W02, ty = W12
+v0 = flow_angle_
+optimizer.cpp:71;
+:Generator::Create(c, init_center_, dE, interpolator of frame t_init_)
+CostFunctionConfig computes norm(dE) once
+error.h:121;
+#E3F0FB:AutoDiffCostFunction: P x P residuals,
+parameter blocks of size 3 (theta, tx, ty) and 1 (phi)]
+|Ceres solver|
+repeat :one Levenberg-Marquardt iteration (DENSE_QR);
+  |ErrorRotation|
+  :warp(p, v), for each pixel (x, y) of the P x P patch:
+    x' = cos(theta) (x + c.x - h) - sin(theta) (y + c.y - h) + tx
+    y' = sin(theta) (x + c.x - h) + cos(theta) (y + c.y - h) + ty
+    g = bicubic sample of (Ix, Iy) of frame t_init_ at (x', y')
+    a(x, y) = g . (cos phi, sin phi)
+  error.h:88;
+  #E3F0FB:predicted brightness increment a: P x P, and its sum of squares]
+  :operator(): r(x, y) = a(x, y) / sqrt(1e-3 + sum of a^2) + dE(x, y) / norm(dE)
+  error.h:71;
+  #E3F0FB:residual r: P x P values,
+  Jacobian wrt theta, tx, ty, phi from autodiff Jets]
+  |Ceres solver|
+  :compute the 4-parameter step, accept or reject it;
+repeat while (not converged and below max_num_iterations?) is (yes)
+->no;
+#E3F0FB:theta, tx, ty, phi, final_cost = 0.5 x sum of r^2]
+|Optimizer|
+:warping_ = getWarp(theta, tx, ty)
+flow_angle_ = phi mod 2 pi
+tracking_quality_ = 1 - final_cost / 2
+updateCenter(t): centre = inverse(warping_) * init_center_;
+note right
+  Both terms of r are (almost) unit vectors, so
+  final_cost is about 1 + cos(angle between a and dE)
+  and tracking_quality_ about (1 - cos(angle)) / 2:
+  1 when a = -dE, which is what the EKLT model predicts.
+end note
+|EkltPatch|
+#E3F0FB:new warping_, flow_angle_, tracking_quality_
+track_hist_ gets (t, centre)]
+stop
+@enduml

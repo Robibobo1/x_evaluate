@@ -1,0 +1,191 @@
+@startuml 02_class_frontend
+' EKLT frontend classes: what each class stores and which methods move the data.
+'
+' Static code analysis, no run data. Code: jpl-x/x_events, branch events, commit fe2facf
+' (inside the container: /catkin_ws/src/x).
+' Sources:
+'   include/x/vio/abstract_vio.h                       AbstractVio
+'   include/x/eklt/eklt_vio.h, src/x/eklt/eklt_vio.cpp  EKLTVIO
+'   include/x/eklt/async_feature_tracker.h, .cpp        AsyncFeatureTracker
+'   include/x/eklt/eklt_tracker.h, .cpp                 EkltTracker
+'   include/x/eklt/async_patch.h, eklt_patch.h          AsyncPatch, EkltPatch
+'   include/x/eklt/optimizer.h, src/x/eklt/optimizer.cpp Optimizer
+'   include/x/eklt/types.h:88-109                       OptimizerDatum, OptimizerData
+'   include/x/eklt/error.h                              CostFunctionConfig, ErrorRotation, Generator
+'   include/x/eklt/async_feature_interpolator.h, .cpp   AsyncFeatureInterpolator
+'
+' Notation: solid diamond = composition (owns), dashed arrow = uses or creates, triangle = inheritance.
+' View: VS Code PlantUML extension, Alt+D. "!pragma layout smetana" = built-in layout, no Graphviz needed.
+!pragma layout smetana
+title EKLT frontend classes: who stores what
+
+interface AbstractVio {
+  +processImu(t, seq, w_m, a_m) State
+  +processImageMeasurement(t, seq, match_img, feature_img) State
+  +processEventsMeasurement(events, tracker_img, feature_img) State
+}
+
+class EKLTVIO {
+  -Ekf ekf_
+  -EkltVioUpdater vio_updater_
+  -EkltTracker eklt_tracker_
+  -Camera camera_
+  -Params params_
+  -int seq_ : counts EKF updates
+  +setUp(params)
+  +initAtTime(t)
+  +processImu(t, seq, w_m, a_m) State
+  +processImageMeasurement(t, seq, match_img, feature_img) State
+  +processEventsMeasurement(events, tracker_img, feature_img) State
+}
+
+class "Ekf" as EkfStub <<see 03>>
+class "EkltVioUpdater" as UpdaterStub <<see 03>>
+
+abstract class AsyncFeatureTracker {
+  #ImageBuffer images_ : map t to TiledImage, frames not yet reached by events
+  #iterator current_image_it_ : newest frame older than the events
+  #AsyncFeatureInterpolator interpolator_
+  #double most_current_time_ : newest event time
+  #AsyncFrontendParams params_
+  -int events_till_next_ekf_update_
+  +processEvents(msg) vector<MatchList>
+  +processImage(t, image)
+  +extractFeatures(features, n, image_it, patch_size)
+  {abstract} +updatePatch(patch, event) bool
+  {abstract} +onInit(image_it)
+  {abstract} +getActivePatches() vector<AsyncPatch*>
+  {abstract} +discardPatch(patch)
+  +onNewImageReceived()
+  +onPostEvent()
+}
+
+class EkltTracker {
+  -EkltPatches patches_ : eklt_max_corners slots
+  -vector<int> lost_indices_ : free slots
+  +Optimizer optimizer_
+  +Params params_
+  -Viewer* viewer_ptr_
+  +updatePatch(patch, event) bool
+  +onInit(image_it)
+  +onNewImageReceived()
+  +discardPatch(patch)
+  -initPatches(patches, lost, n, image_it)
+  -addFeatures(lost, image_it)
+  -resetPatches(new_patches, lost, image_it)
+  -bootstrapAllPossiblePatches(patches, image_it)
+  -bootstrapFeatureKLT(patch, init_img, cur_img)
+  -bootstrapFeatureEvents(patch, event_frame)
+  -setBatchSize(patch, d)
+  -shouldDiscard(patch) bool
+}
+
+class AsyncPatch {
+  #int id_ : new id at every reset
+  -vector<pair<double, Point2d>> track_hist_ : t and centre in pixels
+  +getCenter() Point2d
+  +getCurrentTime() double
+  +updateTrack(t, centre)
+  +resetTrack(t, centre)
+}
+
+class EkltPatch {
+  +Point2d init_center_ : corner position in the init frame
+  +double t_init_ : timestamp of that frame
+  +Mat warping_ : 3x3, current patch to init frame
+  +double flow_angle_ : optical flow direction in rad
+  +pair<Mat, Mat> gradient_xy_ : P x P log-gradient at init
+  +deque<Event> event_buffer_ : newest first, at most batch_size_
+  +size_t event_counter_ : events since the last solve
+  +size_t batch_size_ : events per solve, adaptive
+  +double tracking_quality_ : 0 bad to 1 good
+  +bool initialized_ : bootstrapped
+  +bool lost_
+  +int patch_size_ : P = eklt_patch_size
+  +contains(x, y) bool
+  +insert(event)
+  +getEventFrame(frame) double
+  +updateCenter(t)
+  +warpPixel(in, out)
+  +reset(centre, t, gradient)
+}
+
+class Optimizer {
+  +OptimizerData optimizer_data_ : map t_init to OptimizerDatum
+  +Solver::Options solver_options : DENSE_QR, 1 thread
+  +getLogGradients(img, I_x, I_y)
+  +precomputeLogImageArray(patches, image_it)
+  +optimizeParameters(event_frame, patch, t)
+  +decrementCounter(t)
+  +setParams(params)
+}
+note left of Optimizer
+  solver_options are filled once, in the
+  constructor, from the default Params
+  (eklt_max_num_iterations = 10). setParams()
+  only copies params_, so the YAML value never
+  reaches Ceres (optimizer.cpp:22 and :27).
+end note
+
+class OptimizerDatum <<struct>> {
+  +vector<double> grad_ : H x W x 2, Ix and Iy interleaved
+  +Grid2D* grad_grid_
+  +BiCubicInterpolator* grad_interp_
+  +int ref_counter_ : patches still using this frame
+}
+
+class Generator <<factory>> {
+  {static} +Create(centre, init_centre, event_frame, grad_interp) CostFunction*
+}
+
+class ErrorRotation <<Ceres cost functor>> {
+  +shared_ptr<CostFunctionConfig> config_
+  {static} +getP0(p, warp)
+  {static} +getWarp(p, warp)
+  +operator()(p, v, residual) bool
+  -warp(p, v, residual, norm_sq)
+}
+
+class CostFunctionConfig <<struct>> {
+  +Point2d feature_ : current centre
+  +Point2d init_feature_
+  +const Mat* event_frame_
+  +Interpolator* grad_interp_
+  +int patch_size_, half_size_, size_
+  +double norm_event_frame_
+}
+
+class AsyncFeatureInterpolator {
+  -Camera camera_
+  -AsyncFrontendParams params_
+  -map<int, Feature> previous_features_ : last Feature sent, per patch id
+  -double previous_time_
+  +getMatchListFromPatches(patches, outliers, t_last) MatchList
+  +interpolatePatchToTime(patch, t) Feature
+  -getInterpolationTime(patches, t_last) double
+  -setPreviousFeature(patch, f_prev, t) bool
+  -createUndistortedFeature(t, x, y) Feature
+}
+
+class Camera {
+  +undistortFeature(feature)
+  +normalize(track) Track
+}
+
+AbstractVio <|.. EKLTVIO
+EKLTVIO *-- EkltTracker
+EKLTVIO *-- EkfStub
+EKLTVIO *-- UpdaterStub
+AsyncFeatureTracker <|-- EkltTracker
+AsyncFeatureTracker *-- AsyncFeatureInterpolator
+EkltTracker "1" *-- "eklt_max_corners" EkltPatch : patches_
+AsyncPatch <|-- EkltPatch
+EkltTracker *-- Optimizer
+Optimizer "1" *-- "0..*" OptimizerDatum : one per frame still used
+Optimizer ..> Generator : once per solve
+Generator ..> ErrorRotation : creates
+ErrorRotation --> CostFunctionConfig
+CostFunctionConfig --> OptimizerDatum : grad_interp_
+AsyncFeatureInterpolator ..> AsyncPatch : reads track_hist_
+AsyncFeatureInterpolator --> Camera
+@enduml

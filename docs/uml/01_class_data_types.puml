@@ -1,0 +1,121 @@
+@startuml 01_class_data_types
+' EKLT-VIO data types: the objects that carry data from one stage to the next, and the functions
+' that convert one into the next.
+'
+' Static code analysis, no run data. Code: jpl-x/x_events, branch events, commit fe2facf
+' (inside the container: /catkin_ws/src/x), plus test/evaluate.cpp of this repo.
+' Sources:
+'   include/x/common/event_types.h            Event, EventArray
+'   include/x/vision/tiled_image.h            TiledImage
+'   include/x/vision/feature.h, track.h       Feature, Track
+'   include/x/vision/types.h:35-52            Match, MatchList, TrackList
+'   include/x/vio/types.h:399, 426, 441       RangeMeasurement, SunAngleMeasurement, VioMeasurement
+'   include/x/ekf/state.h                     State
+'   src/x/eklt/eklt_vio.cpp:231               State array sizes (initAtTime)
+'   src/x/vision/camera.cpp:120-140           undistortFeature, normalize
+'   test/evaluate.cpp:52, 78, 284             ROS message conversions
+'
+' Notation: solid diamond = composition (part of), dashed arrow = "is converted into, by <function>".
+' View: VS Code PlantUML extension, Alt+D. "!pragma layout smetana" = built-in layout, no Graphviz needed.
+!pragma layout smetana
+title EKLT-VIO data types and the functions that convert one into the next
+
+package "ROS messages in the rosbag" {
+  class "dvs_msgs/EventArray" as RosEvents
+  class "sensor_msgs/Image" as RosImage
+  class "sensor_msgs/Imu" as RosImu {
+    angular_velocity
+    linear_acceleration
+  }
+}
+
+package "Frontend data" {
+  class "x::Event" as Event <<struct>> {
+    +uint16_t x : pixel column
+    +uint16_t y : pixel row
+    +double ts : seconds
+    +bool polarity : brighter or darker
+  }
+  class "x::EventArray" as EventArray <<struct>> {
+    +uint32_t seq
+    +uint32_t height, width
+    +vector<Event> events
+  }
+  class "x::TiledImage" as TiledImage {
+    cv::Mat, 8-bit grey frame
+    +getTimestamp() double
+    +getFrameNumber() unsigned
+  }
+  class "x::Feature" as Feature {
+    +double timestamp_
+    +double x_dist_, y_dist_ : raw pixel position
+    +double x_, y_ : undistorted pixel, normalised after Camera::normalize
+  }
+  class "x::Match" as Match <<struct>> {
+    +Feature previous
+    +Feature current
+  }
+  class "x::MatchList" as MatchList <<typedef>> {
+    vector<Match>
+  }
+}
+
+package "Backend data" {
+  class "x::VioMeasurement" as VioMeasurement <<struct>> {
+    +double timestamp
+    +unsigned seq
+    +MatchList matches
+    +TiledImage image : only for debug drawing
+    +RangeMeasurement range : never set by evaluate.cpp
+    +SunAngleMeasurement sun_angle : never set by evaluate.cpp
+  }
+  class "x::Track" as Track {
+    vector<Feature>, oldest first
+  }
+  class "x::TrackList" as TrackList <<typedef>> {
+    vector<Track>
+  }
+  class "Kalman update matrices" as UpdateMatrices <<local variables>> {
+    +Matrix h : rows x n_err Jacobian
+    +Matrix res : rows x 1 residual
+    +Matrix r : rows x rows measurement noise
+    +Matrix correction : n_err x 1
+  }
+  class "x::State" as State {
+    +double time_
+    +Vector3 p_, v_ : IMU position, velocity
+    +Quaternion q_ : IMU attitude
+    +Vector3 b_w_, b_a_ : gyro and accelerometer biases
+    +Matrix p_array_ : 3 n_poses x 1, camera positions of the window
+    +Matrix q_array_ : 4 n_poses x 1, camera attitudes of the window
+    +Matrix f_array_ : 3 n_features x 1, SLAM features alpha, beta, rho
+    +Matrix cov_ : n_err x n_err with n_err = 15 + 6 n_poses + 3 n_features
+    +Quaternion q_ic_, Vector3 p_ic_ : camera to IMU extrinsics
+    +Vector3 w_m_, a_m_ : IMU sample used to reach this state
+  }
+}
+
+EventArray *-- "0..*" Event
+Match *-- "2" Feature
+MatchList o-- "0..*" Match
+Track o-- "2..*" Feature
+TrackList o-- "0..*" Track
+VioMeasurement *-- MatchList
+VioMeasurement *-- TiledImage
+
+RosEvents ..> EventArray : msgToEvents()\nevaluate.cpp:52
+RosImage ..> TiledImage : msgToTiledImage()\nevaluate.cpp:78
+RosImu ..> State : Ekf::processImu() propagation\nno struct: passed as t, seq, w_m, a_m
+EventArray ..> Feature : EKLT tracking moves patch centres,\nAsyncFeatureInterpolator::createUndistortedFeature()
+Feature ..> Match : getMatchListFromPatches()\nprevious = Feature sent for this patch last time
+MatchList ..> VioMeasurement : EKLTVIO::processEventsMeasurement()
+VioMeasurement ..> TrackList : TrackManager::manageTracks()\nthen Camera::normalize()
+TrackList ..> UpdateMatrices : EkltVioUpdater::constructUpdate()\nMsckfUpdate, MsckfSlamUpdate, SlamUpdate
+UpdateMatrices ..> State : Updater::applyUpdate()\nState::correct()
+
+note bottom of TiledImage
+  Frames also feed the frontend:
+  Harris corners and the reference
+  log-gradient (see 02 and 06).
+end note
+@enduml

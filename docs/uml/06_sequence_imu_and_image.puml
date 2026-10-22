@@ -1,0 +1,90 @@
+@startuml 06_sequence_imu_and_image
+' IMU and frame messages in time: how IMU samples become propagated states, and how frames become
+' patches and reference gradients for the event tracker.
+'
+' Static code analysis, no run data. Code: jpl-x/x_events, branch events, commit fe2facf
+' (inside the container: /catkin_ws/src/x), plus test/evaluate.cpp of this repo.
+' Sources:
+'   test/evaluate.cpp:78, :284, :305                 msgToTiledImage, processImu, processImageMeasurement calls
+'   src/x/eklt/eklt_vio.cpp:110, :312                processImageMeasurement, processImu
+'   src/x/ekf/ekf.cpp:79-151                         Ekf::processImu
+'   include/x/ekf/propagator.h                       propagateState, propagateCovariance
+'   src/x/eklt/async_feature_tracker.cpp:27, :175    extractFeatures, processImage
+'   include/x/eklt/async_feature_tracker.h           updateFirstImageBeforeTime
+'   src/x/eklt/eklt_tracker.cpp:24-85, :138-176, :188-252, :282   initPatches, onInit, addFeatures,
+'                                                    bootstrap, resetPatches, bootstrapFeatureKLT, onNewImageReceived
+'   src/x/eklt/optimizer.cpp:36-69, src/x/eklt/utils.cpp   decrementCounter, getLogGradients, precomputeLogImageArray
+' View: VS Code PlantUML extension, Alt+D.
+title IMU and frame messages in time, with the data on every arrow
+
+participant "evaluate.cpp" as H
+participant "EKLTVIO" as V
+participant "Ekf" as E
+participant "StateBuffer" as B
+participant "Propagator" as R
+participant "EkltTracker\n(AsyncFeatureTracker)" as T
+participant "Optimizer" as O
+participant "OpenCV" as CV
+
+== IMU message ==
+H -> H : sensor_msgs/Imu to Vector3 w_m (gyro), a_m (accelerometer)
+H -> V : processImu(t, seq, w_m, a_m)
+V -> E : processImu(t, seq, w_m, a_m)
+activate E
+alt not initialised (before initAtTime)
+  E --> V : invalid State
+else stand-by (just after initAtTime)
+  E -> B : tail State: setImu(t, seq, w_m, a_m), only if a_m is below a_m_max
+  note right : this first sample completes\nthe initial state
+  E --> V : initial State
+else initialised
+  E -> E : drop the sample if t is not newer,\nreplace a_m by the previous one if above a_m_max
+  E -> B : enqueueInPlace(): next State slot
+  E -> R : propagateState(last, next): p, v, q
+  E -> R : propagateCovariance(last, next): 15 x 15 core transition\nand its cross terms with the window and features
+  E --> V : next State
+end
+deactivate E
+V --> H : State
+
+== Frame message ==
+H -> H : msgToTiledImage(): MONO8 cv::Mat, t, frame number
+H -> V : processImageMeasurement(t, seq, TiledImage)
+V -> T : processImage(t + time_offset, copy of the frame)
+activate T
+T -> T : images_.insert(t, frame)
+alt first frame
+  T -> T : onInit(): initPatches()
+  T -> CV : goodFeaturesToTrack(frame, eklt_max_corners, Harris, border mask)
+  CV --> T : corner pixels
+  T -> T : one EkltPatch per corner, the remaining slots are created lost
+  T -> O : getLogGradients(frame)
+  O --> T : I_x, I_y = Sobel of log(I / 255 + eps) / 8, H x W double
+  T -> T : per patch: gradient_xy_ = P x P crop, setBatchSize()
+  T -> O : precomputeLogImageArray(patches, frame)
+  O -> O : optimizer_data_[t] = OptimizerDatum: H x W x 2 grid,\nbicubic interpolator, ref_counter_ = number of patches
+else later frames
+  T -> T : the frame waits in images_ until events reach its timestamp
+end
+deactivate T
+V --> H : invalid State: a frame never updates the EKF directly
+
+== Later, inside processEvents, when the event time passes a buffered frame ==
+activate T
+T -> T : updateFirstImageBeforeTime(): current_image_it_ = newest frame older than the events
+T -> T : onNewImageReceived()
+opt eklt_bootstrap is "klt"
+  T -> T : bootstrapAllPossiblePatches(): patches detected on an earlier frame
+  T -> CV : calcOpticalFlowPyrLK(init frame, this frame, init_center_)
+  CV --> T : new position: flow_angle_, translation of warping_,\ninitialized_ = true, or lost if outside the image
+end
+opt lost slots exceed eklt_max_corners - eklt_min_corners
+  T -> CV : addFeatures(): goodFeaturesToTrack with the active patches masked
+  CV --> T : new corners
+  T -> O : precomputeLogImageArray() for this frame
+  T -> T : resetPatches(): new corners into lost slots, gradient_xy_, setBatchSize()
+  T -> O : decrementCounter(old t_init_): frees an OptimizerDatum nobody uses
+end
+T -> T : erase the previous frame from images_
+deactivate T
+@enduml

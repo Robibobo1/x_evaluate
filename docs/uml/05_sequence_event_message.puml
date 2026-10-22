@@ -1,0 +1,112 @@
+@startuml 05_sequence_event_message
+' One event message in time: every call, with the data passed and returned on the arrows.
+'
+' Static code analysis, no run data. Code: jpl-x/x_events, branch events, commit fe2facf
+' (inside the container: /catkin_ws/src/x), plus test/evaluate.cpp of this repo.
+' Sources:
+'   test/evaluate.cpp:314-317                        msgToEvents, processEventsMeasurement
+'   src/x/eklt/eklt_vio.cpp:164-228                  EKLTVIO::processEventsMeasurement
+'   src/x/eklt/async_feature_tracker.cpp:91-173      AsyncFeatureTracker::processEvents
+'   src/x/eklt/eklt_tracker.cpp:87-136, :178         updatePatch, setBatchSize
+'   include/x/eklt/eklt_patch.h:81, :94, :114         insert, updateCenter, getEventFrame
+'   src/x/eklt/optimizer.cpp:71-108                  optimizeParameters
+'   include/x/eklt/error.h                           Generator, ErrorRotation
+'   src/x/eklt/async_feature_interpolator.cpp:110    getMatchListFromPatches
+'   src/x/ekf/ekf.cpp:153-187, :201                  processUpdateMeasurement, repropagateFromStateAtIdx
+'   src/x/ekf/updater.cpp:21-57                      Updater::update
+'   src/x/eklt/eklt_vio_updater.cpp:47-303           preProcess, preUpdate, constructUpdate, postUpdate
+' View: VS Code PlantUML extension, Alt+D.
+title One event message in time, with the data on every arrow
+
+participant "evaluate.cpp" as H
+participant "EKLTVIO" as V
+participant "EkltTracker\n(AsyncFeatureTracker)" as T
+participant "EkltPatch k" as P
+participant "Optimizer" as O
+participant "Ceres\n+ ErrorRotation" as C
+participant "AsyncFeature\nInterpolator" as I
+participant "Ekf" as E
+participant "EkltVioUpdater" as U
+participant "TrackManager" as TM
+participant "StateManager" as SM
+participant "Propagator" as R
+
+H -> H : msgToEvents(): dvs_msgs/EventArray to x::EventArray
+H -> V : processEventsMeasurement(EventArray)
+activate V
+V -> T : processEvents(EventArray)
+activate T
+note over T : drops every event until the first frame has arrived
+
+loop each Event e (x, y, ts, polarity)
+  T -> T : most_current_time_ = e.ts
+  loop each patch of getActivePatches(): vector of AsyncPatch*
+    T -> P : updatePatch(patch, e)
+    alt lost, or not bootstrapped (klt mode), or e outside the window, or e older than the patch
+      P --> T : false
+    else e inside the P x P window
+      P -> P : insert(e): event_buffer_.push_front(e), event_counter_ + 1
+      opt event_counter_ reached batch_size_
+        P -> P : getEventFrame(frame): P x P event frame, returns t = batch middle
+        T -> O : optimizeParameters(frame, patch, t)
+        activate O
+        O -> O : p0 = getP0(warping_): theta, tx, ty\nv0 = flow_angle_
+        O -> C : Generator::Create(centre, init_center_, frame, gradient of t_init_)\nthen ceres::Solve(p0, v0)
+        activate C
+        loop until converged or max_num_iterations
+          C -> C : ErrorRotation(p, v): P x P residual + Jacobian (autodiff)
+        end
+        C --> O : optimised p0, v0, summary.final_cost
+        deactivate C
+        O -> P : warping_ = getWarp(p0), flow_angle_ = v0\ntracking_quality_ = 1 - final_cost / 2
+        O -> P : updateCenter(t): track_hist_ gets (t, centre)
+        deactivate O
+        T -> P : setBatchSize(patch): next batch_size_
+        opt shouldDiscard: quality below eklt_tracking_quality or centre outside the image
+          T -> P : discardPatch(): lost_ = true, slot index into lost_indices_
+        end
+        P --> T : true (patch moved)
+      end
+    end
+  end
+  opt event time passed the next buffered frame
+    T -> T : onNewImageReceived(): bootstrap and refill, see 06
+  end
+  opt eklt_ekf_update_every_n events counted and a patch moved
+    T -> I : getMatchListFromPatches(active patches, e.ts)
+    activate I
+    I -> I : t* = newest patch time
+    I -> I : per patch: current = interpolatePatchToTime(patch, t*), undistorted\nprevious = previous_features_[id] or interpolated
+    I --> T : MatchList (optional RANSAC outliers are discarded)
+    deactivate I
+  end
+end
+T --> V : vector of MatchList
+deactivate T
+
+loop each MatchList
+  V -> V : VioMeasurement(t* + time_offset, seq_ + 1, matches, frame copy)
+  V -> U : setMeasurement(VioMeasurement)
+  V -> E : processUpdateMeasurement()
+  activate E
+  E -> E : idx = closestIdx(t), State copy from the StateBuffer
+  E -> U : update(State)
+  activate U
+  U -> SM : convertCameraAttitudesToList(State)
+  SM --> U : camera attitudes of the window
+  U -> TM : manageTracks(matches, attitudes, n_poses_max, n_slam_features_max, min_track_length)
+  TM --> U : SLAM, MSCKF and new SLAM TrackLists (normalised), lost SLAM indexes
+  U -> SM : manage(State, lost indexes): slide window, drop lost features
+  U -> U : constructUpdate(State): Triangulation, MsckfUpdate,\nMsckfSlamUpdate, SlamUpdate, then QR: H, res, R
+  U -> U : applyUpdate(State, H, res, R): K, correction, P, State::correct()
+  U -> SM : initMsckfSlamFeatures(), initStandardSlamFeatures()
+  U --> E : State updated in place
+  deactivate U
+  E -> R : repropagateFromStateAtIdx(): propagateState + propagateCovariance\nfor every newer buffered state
+  E --> V : newest State
+  deactivate E
+end
+V --> H : most recent State
+deactivate V
+H -> H : addPose(): one row of pose.csv
+@enduml

@@ -1,0 +1,51 @@
+@startuml 07_state_patch_lifecycle
+' Life of one EkltPatch slot. EkltTracker::patches_ holds eklt_max_corners slots for the whole run;
+' a slot is never freed, it is reset with a new corner when it is refilled.
+'
+' Static code analysis, no run data. Code: jpl-x/x_events, branch events, commit fe2facf
+' (inside the container: /catkin_ws/src/x).
+' Sources:
+'   src/x/eklt/eklt_tracker.cpp:24-71     initPatches (slots without a corner start lost)
+'   src/x/eklt/eklt_tracker.cpp:87-136    updatePatch (event filter, solve trigger, discard)
+'   src/x/eklt/eklt_tracker.cpp:163-176   bootstrapAllPossiblePatches
+'   src/x/eklt/eklt_tracker.cpp:188-252   resetPatches, bootstrapFeatureKLT
+'   src/x/eklt/eklt_tracker.cpp:254-275   bootstrapFeatureEvents
+'   src/x/eklt/eklt_tracker.cpp:282-291   onNewImageReceived (refill rule)
+'   include/x/eklt/eklt_tracker.h:111-116 shouldDiscard
+'   include/x/eklt/eklt_patch.h:157       reset
+'   src/x/eklt/async_feature_tracker.cpp:91-173   RANSAC outliers from the interpolator are discarded
+'   include/x/eklt/types.h:26-31          EkltTrackUpdateType: Init, Bootstrap, Update, Lost (eklt_tracks.csv)
+' View: VS Code PlantUML extension, Alt+D. "!pragma layout smetana" = built-in layout, no Graphviz needed.
+!pragma layout smetana
+title Life of one EkltPatch slot
+
+[*] --> Detected : initPatches() on the first frame,\na Harris corner for this slot
+[*] --> Lost : initPatches(),\nno corner left for this slot
+
+Detected : entry / reset(): warping_ = identity, flow_angle_ = 0,
+Detected : event_buffer_ cleared, new id_, logged as Init
+Detected : gradient_xy_ = P x P log-gradient crop, setBatchSize()
+Detected : klt mode: events are ignored here
+
+Detected --> Tracking : klt mode, next frame:\nbootstrapFeatureKLT() sets flow_angle_\nand the translation of warping_, logged as Bootstrap
+Detected --> Lost : klt mode, KLT moved\nthe corner out of the image
+Detected --> Tracking : events mode, first full batch:\nbootstrapFeatureEvents() sets flow_angle_\nfrom gradient_xy_ and the event frame
+
+state Tracking {
+  [*] --> Accumulating
+  Accumulating : insert(): event_buffer_ + e, event_counter_ + 1
+  Accumulating --> Accumulating : event inside the window
+  Accumulating --> Optimizing : event_counter_ reached batch_size_
+  Optimizing : getEventFrame(), optimizeParameters()
+  Optimizing : updates warping_, flow_angle_, tracking_quality_, track_hist_
+  Optimizing : logged as Update
+  Optimizing --> Accumulating : quality kept, centre in the image,\nsetBatchSize()
+}
+
+Tracking --> Lost : shouldDiscard(): quality below eklt_tracking_quality\nor centre outside the image
+Tracking --> Lost : RANSAC outlier in getMatchListFromPatches()\n(only if eklt_enable_outlier_removal)
+
+Lost : lost_ = true, slot index in lost_indices_, logged as Lost
+Lost : events are ignored
+Lost --> Detected : onNewImageReceived(), once lost slots exceed\neklt_max_corners - eklt_min_corners:\naddFeatures() + resetPatches()
+@enduml
