@@ -6,7 +6,8 @@
 #   docker/run.sh <cmd> [args]    # run a single command in the container
 #
 # Environment:
-#   XVIO_DATASET_DIR  host folder with the datasets, mounted at /data (default: ../data next to this repo)
+#   DATA_DIR          host data folder, mounted at /data (default: ../data next to this repo); datasets are read from
+#                     its datasets/ subfolder, run outputs go to runs/
 #   X_SRC             optional host checkout of jpl-x/x_events (branch `events`, with docker/patches/*.patch applied),
 #                     mounted over /catkin_ws/src/x to hack on the X library
 set -euo pipefail
@@ -14,7 +15,7 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE=eklt-vio:noetic
 VOLUMES=(eklt_ws_build eklt_ws_devel eklt_ws_logs)
-DATA_DIR="$(realpath "${XVIO_DATASET_DIR:-$REPO_DIR/../data}")"
+DATA_DIR="$(realpath "${DATA_DIR:-$REPO_DIR/../data}")"
 
 if [[ "${1:-}" == "--build" ]]; then
   shift
@@ -36,7 +37,7 @@ ARGS=(
   -v eklt_ws_build:/catkin_ws/build
   -v eklt_ws_devel:/catkin_ws/devel
   -v eklt_ws_logs:/catkin_ws/logs
-  -e XVIO_DATASET_DIR=/data
+  -e XVIO_DATASET_DIR=/data/datasets
   -e X_EVALUATE_SRC_ROOT=/catkin_ws/src/x_evaluate
   # plots are written to files; without this matplotlib picks the Tk backend when DISPLAY is set (tkinter not installed)
   -e MPLBACKEND="${MPLBACKEND:-Agg}"

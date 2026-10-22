@@ -33,10 +33,10 @@ and the Python requirements. This repository is mounted into the container, so e
 
 The reference data is the [Event Camera Dataset](https://rpg.ifi.uzh.ch/davis_data.html) (DAVIS 240C: events, frames,
 IMU and motion-capture ground truth), on which the paper's EKLT-VIO results (Table II) are reproduced. Download the 10
-sequences (about 11.7 GB) into `../data/rpg_davis_data/` on the host:
+sequences (about 11.7 GB) into `../data/datasets/rpg_davis_data/` on the host:
 
 ```bash
-mkdir -p ../data/rpg_davis_data && cd ../data/rpg_davis_data
+mkdir -p ../data/datasets/rpg_davis_data && cd ../data/datasets/rpg_davis_data
 for s in boxes_6dof boxes_translation dynamic_6dof dynamic_translation hdr_boxes hdr_poster \
          poster_6dof poster_translation shapes_6dof shapes_translation; do
   wget -c https://download.ifi.uzh.ch/rpg/web/datasets/davis/$s.bag
@@ -50,7 +50,7 @@ docker/run.sh                       # first run builds the image (~15-20 min, ce
 # inside the container:
 catkin build x_evaluate && source devel/setup.bash
 python3 src/x_evaluate/test/evaluate.py --configuration src/x_evaluate/test/evaluate_rpg_table2.yaml \
-  --output_folder /data/rpg_runs/eklt --dataset_dir /data --frontend EKLT --name "EKLT"
+  --output_folder /data/runs/rpg/eklt_reproduction --dataset_dir /data/datasets --frontend EKLT --name "EKLT"
 ```
 
 The sequences run one after the other (about 2 h for EKLT on a laptop; `--frontend XVIO` takes minutes). Each one writes
@@ -58,8 +58,9 @@ a subfolder with plots and `trajectory_tracking_summary.xlsx`; the expected mean
 `docs/eklt_vio_reproduction_notes.md` (section 7, average 0.54%). To run a single sequence, copy its entry from
 `test/evaluate_rpg_table2.yaml` into a YAML file of its own.
 
-Datasets are read from `../data` (override with `XVIO_DATASET_DIR=/path/to/datasets docker/run.sh`) and mounted at
-`/data`. To modify the X library itself, clone `x_events` (branch `events`) on the host, apply
+The host folder `../data` (override with `DATA_DIR=/path/to/data docker/run.sh`) is mounted at `/data`: datasets are
+read from its `datasets/` subfolder (one folder per dataset, as named in the configs, e.g. `rpg_davis_data/`) and run
+outputs go to `runs/`. To modify the X library itself, clone `x_events` (branch `events`) on the host, apply
 `docker/patches/*.patch` with `git apply`, and start with `X_SRC=/path/to/x_events docker/run.sh`.
 
 Notes:
