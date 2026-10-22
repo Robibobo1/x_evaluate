@@ -165,6 +165,8 @@ using GTCsv = x::CsvWriter<double,
                            double, double, double,
                            double, double, double, double>;
 
+using SlamLandmarksCsv = x::CsvWriter<double, size_t, double, double, double>;
+
 void addPose(PoseCsv& csv, const std::string& update_modality, const x::State& s) {
   csv.addRow(update_modality, s.getTime(),
              s.getPosition().x(), s.getPosition().y(), s.getPosition().z(),
@@ -206,6 +208,8 @@ int evaluate(x::AbstractVio &vio, const fs::path &output_path, const x::Params& 
                                               "estimated_q_x", "estimated_q_y", "estimated_q_z", "estimated_q_w"});
   ImuBiasCsv imu_bias_csv(output_path / "imu_bias.csv", {"t", "b_a_x", "b_a_y", "b_a_z", "b_w_x", "b_w_y", "b_w_z",
                                                          "sigma_b_a_x", "sigma_b_a_y", "sigma_b_a_z", "sigma_b_w_x", "sigma_b_w_y", "sigma_b_w_z"});
+  // world coordinates of the SLAM features after each vision update; slot = index of the feature in the state
+  SlamLandmarksCsv slam_landmarks_csv(output_path / "slam_landmarks.csv", {"t", "slot", "p_x", "p_y", "p_z"});
 
 
   std::unique_ptr<GTCsv> gt_csv(nullptr);
@@ -402,6 +406,13 @@ int evaluate(x::AbstractVio &vio, const fs::path &output_path, const x::Params& 
 
       addPose(pose_csv, process_type, state);
       addImuBias(imu_bias_csv, process_type, state);
+
+      // IMU propagation does not change the features, and an update without a valid state has none
+      if (process_type != "IMU" && state.getTime() != x::kInvalid) {
+        size_t slot = 0;
+        for (const auto& p : vio.computeSLAMCartesianFeaturesForState(state))
+          slam_landmarks_csv.addRow(state.getTime(), slot++, p.x(), p.y(), p.z());
+      }
       rt_csv.addRow(m.getTime().toSec(), calculation_time * 1e-6, profiler::now(), process_type, duration_in_us);
     }
 
