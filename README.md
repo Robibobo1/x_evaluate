@@ -31,26 +31,44 @@ ROS Noetic is only available for Ubuntu 20.04, so on newer hosts use the provide
 X library with event-based frontends ([jpl-x/x_events](https://github.com/jpl-x/x_events)), all catkin dependencies 
 and the Python requirements. This repository is mounted into the container, so edits on the host are picked up directly.
 
+The reference data is the [Event Camera Dataset](https://rpg.ifi.uzh.ch/davis_data.html) (DAVIS 240C: events, frames,
+IMU and motion-capture ground truth), on which the paper's EKLT-VIO results (Table II) are reproduced. Download the 10
+sequences (about 11.7 GB) into `../data/rpg_davis_data/` on the host:
+
+```bash
+mkdir -p ../data/rpg_davis_data && cd ../data/rpg_davis_data
+for s in boxes_6dof boxes_translation dynamic_6dof dynamic_translation hdr_boxes hdr_poster \
+         poster_6dof poster_translation shapes_6dof shapes_translation; do
+  wget -c https://download.ifi.uzh.ch/rpg/web/datasets/davis/$s.bag
+done
+```
+
+Then build and evaluate:
+
 ```bash
 docker/run.sh                       # first run builds the image (~15-20 min, ceres is compiled from source)
 # inside the container:
 catkin build x_evaluate && source devel/setup.bash
-python3 src/x_evaluate/test/evaluate.py --configuration src/x_evaluate/test/evaluate_wells_test5.yaml \
-  --output_folder /data/_out --dataset_dir /data --frontend EKLT --name "EKLT"
+python3 src/x_evaluate/test/evaluate.py --configuration src/x_evaluate/test/evaluate_rpg_table2.yaml \
+  --output_folder /data/rpg_runs/eklt --dataset_dir /data --frontend EKLT --name "EKLT"
 ```
 
+The sequences run one after the other (about 2 h for EKLT on a laptop; `--frontend XVIO` takes minutes). Each one writes
+a subfolder with plots and `trajectory_tracking_summary.xlsx`; the expected mean position errors are listed in
+`docs/eklt_vio_reproduction_notes.md` (section 7, average 0.54%). To run a single sequence, copy its entry from
+`test/evaluate_rpg_table2.yaml` into a YAML file of its own.
+
 Datasets are read from `../data` (override with `XVIO_DATASET_DIR=/path/to/datasets docker/run.sh`) and mounted at
-`/data`; e.g. extract `wells_cave.zip` there so that `../data/wells_cave/wells_test1.bag` exists. To modify the X 
-library itself, clone `x_events` (branch `events`) on the host, apply `docker/patches/*.patch` with `git apply`, and 
-start with `X_SRC=/path/to/x_events docker/run.sh`.
+`/data`. To modify the X library itself, clone `x_events` (branch `events`) on the host, apply
+`docker/patches/*.patch` with `git apply`, and start with `X_SRC=/path/to/x_events docker/run.sh`.
 
 Notes:
-- The public Wells cave bags only contain `/dvs/image_raw`, while most entries in `test/evaluate_wells*.yaml` use 
-  `/dvs/image_reconstructions` (E2VID reconstructions that were not published). With that topic EKLT receives no 
-  images and drops all events; switch the entry's `image_topic` to `/dvs/image_raw` (as `test/evaluate_wells_dop.yaml`
-  does for Wells Test 5 and 15).
 - `docker/patches/x_events-clamp-feature-tile.patch` fixes a segfault in `x_events` when an EKLT feature drifts 
   slightly outside the image (its tile row underflowed and indexed past a per-tile array).
+- `evaluate.py` does not check whether the C++ `evaluate` crashed; check each run's console output.
+- Most Wells Cave configs (`test/evaluate_wells*.yaml`) expect `/dvs/image_reconstructions`, E2VID images that were
+  not published; on the public raw frames (`/dvs/image_raw`) EKLT-VIO mostly diverges. See
+  `docs/eklt_vio_reproduction_notes.md` for details.
 
 ### Dependencies
 
