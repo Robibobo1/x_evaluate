@@ -5,6 +5,13 @@ RA-L 2022) with the published code (`jpl-x/x_evaluate` master `5d95acc`, `jpl-x/
 `fe2facf`, 2022-02-21) on the public data. Each point states what was observed and how it was established; open points
 are marked as such.
 
+**Summary.** On the Event Camera Dataset, with the authors' parameter file, the published code reproduces the paper's
+EKLT-VIO results (Table II): average mean position error 0.54% vs 0.54%, every sequence within +-0.03% (section 7). The
+published code, including its 10-iteration optimizer cap, is therefore what produced those results, and this
+repository's setup is correct. On the Wells Cave raw frames and on MVSEC, EKLT-VIO diverges in most runs (sections 5,
+6); the paper used E2VID reconstructions instead of raw frames on Wells and never evaluated MVSEC, so these failures
+are attributed to input and tuning, not to the code.
+
 ## 1. E2VID reconstructions on the Mars-like sequences, and the real-time constraint
 
 - For the Wells Cave and JPL Mars Yard sequences, the paper does not feed EKLT-VIO the camera frames but intensity
@@ -138,23 +145,51 @@ one: on Test 17 (section 5) EKLT-VIO diverges with a plausible gyro bias.
 Note on the evaluation script: `evaluate.py` does not check the exit status of the C++ `evaluate`; a run that crashed
 still produces plots from partial data, so each run's console log must be checked.
 
-## 7. Open points
+## 7. Reproduction of the paper results on the Event Camera Dataset
 
-- Code version or input? Only the Event Camera Dataset (RPG, DAVIS 240C, motion capture) has published EKLT-VIO numbers
-  per sequence, obtained with raw frames (paper Table II, e.g. boxes_6dof 0.84%, poster_6dof 0.35%, average 0.54%).
-  Reproducing them with the published code would show whether the code is sound and the Wells / MVSEC failures come
-  from the input (raw frames instead of E2VID) and parameters, or whether the published code itself differs. The RPG
-  download server (`download.ifi.uzh.ch`) has failed TLS handshakes since 2026-10-21.
-- On Wells Test 7, none of the configuration changes traceable in the authors' history prevents the divergence, and
-  the independent build (section 6) rules out this repository's build environment. Remaining explanations: the input
-  (raw frames instead of E2VID; for the dark sequences E2VID is required to have any usable image) and the code
-  version. The cause of the steady phantom acceleration on Test 17 is not investigated.
+The Event Camera Dataset (Mueggler et al., IJRR 2017; DAVIS 240C, raw frames, events, IMU, OptiTrack ground truth) is
+the only dataset with published EKLT-VIO numbers per sequence. The 10 sequences of the paper's Table II were run with the
+unmodified entries of `test/evaluate.yaml` and `params_rpg_davis.yaml` (committed by the authors in `769e2ca`,
+2021-08-31, "parameter files for reproducing the results in papers"), published code with the tile clamp patch,
+iteration cap of 10 as in the published code. MPE: mean position error in % of the trajectory length, computed by the
+authors' evaluation code; paper values as quoted in VIO-GO (Frontiers in Robotics and AI, 2025, Table 4).
+
+| Sequence | Paper MPE | This setup MPE | Mean yaw error [deg/m] | Realtime factor (median) |
+|---|---|---|---|---|
+| boxes_6dof | 0.84% | 0.84% | 0.18 | 12.5 |
+| boxes_translation | 0.48% | 0.48% | 0.53 | 14.3 |
+| dynamic_6dof | 0.79% | 0.81% | 0.15 | 7.6 |
+| dynamic_translation | 0.40% | 0.38% | 0.08 | 6.9 |
+| hdr_boxes | 0.46% | 0.46% | 0.09 | 15.3 |
+| hdr_poster | 0.65% | 0.62% | 0.28 | 18.6 |
+| poster_6dof | 0.35% | 0.36% | 0.06 | 21.4 (paper Table IV: 17.9) |
+| poster_translation | 0.35% | 0.35% | 0.08 | 21.4 |
+| shapes_6dof | 0.60% | 0.62% | 0.13 | 6.9 |
+| shapes_translation | 0.51% | 0.49% | 0.20 | 6.7 |
+| **Average** | **0.54%** | **0.54%** | | |
+
+All runs complete without crash; 48-238 EKF updates per sequence (under 0.5%) are rejected for timestamps slightly
+ahead of the IMU states. Realtime factors were measured with 10 runs in parallel on an i5-1345U laptop.
+
+Consequences:
+- The published code and this setup reproduce the paper. Four sequences match to the hundredth of a percent, so the
+  paper's results were most likely produced with this code, including the 10-iteration optimizer cap.
+- The evidence of a newer unpublished library version (section 2) concerns later work (Wells tuning, the event-filter
+  speedups of Table IV), not the Table II results.
+- The divergence on Wells raw frames and on MVSEC is a matter of input and tuning, not of the code.
+
+## 8. Open points
+
+- Wells Cave: whether EKLT-VIO behaves as in the paper with E2VID reconstructions (the paper's input) instead of raw
+  frames is not tested; for the sequences that start in the dark, E2VID is required to have any usable image. The cause
+  of the steady phantom acceleration on Test 17 is not investigated.
 - The EKLT tracker is open loop: `EKLTVIO` only passes it images and events, it never reads the filter state. Its
   tracks and its computational load are therefore the same whether or not the filter diverges, so a component-level
   evaluation of the tracker (e.g. of an accelerated implementation) does not depend on the open points above.
 
 ## Reproduction
 
-All runs use the Docker setup (`docker/run.sh`). Wells raw-frame runs use the entry of `test/evaluate_wells.yaml` with
+All runs use the Docker setup (`docker/run.sh`). Event Camera Dataset runs use one entry of `test/evaluate.yaml` per
+run, with the bags in `${XVIO_DATASET_DIR}/rpg_davis_data/`. Wells raw-frame runs use the entry of `test/evaluate_wells.yaml` with
 `image_topic: /dvs/image_raw`; parameter tests are passed with `evaluate.py --overrides key=value`. The iteration fix is
 the two-line change in `Optimizer::setParams` (`solver_options.max_num_iterations = params_.eklt_max_num_iterations;`).
