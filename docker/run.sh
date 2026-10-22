@@ -8,14 +8,19 @@
 # Environment:
 #   DATA_DIR          host data folder, mounted at /data (default: ../data next to this repo); datasets are read from
 #                     its datasets/ subfolder, run outputs go to runs/
-#   X_SRC             optional host checkout of the X library (Robibobo1/x_events, branch `accelerator`), mounted over
-#                     /catkin_ws/src/x to work on it
+#   X_SRC             host checkout of the X library (Robibobo1/x_events, branch `accelerator`), mounted over
+#                     /catkin_ws/src/x to work on it (default: ../x_events next to this repo when it is checked out;
+#                     set it empty, `X_SRC= docker/run.sh`, to use the copy built into the image)
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE=eklt-vio:noetic
 VOLUMES=(eklt_ws_build eklt_ws_devel eklt_ws_logs)
 DATA_DIR="$(realpath "${DATA_DIR:-$REPO_DIR/../data}")"
+# an uninitialized submodule is an empty folder, so look for the package itself
+if [[ -z "${X_SRC+set}" && -f "$REPO_DIR/../x_events/package.xml" ]]; then
+  X_SRC="$REPO_DIR/../x_events"
+fi
 
 if [[ "${1:-}" == "--build" ]]; then
   shift

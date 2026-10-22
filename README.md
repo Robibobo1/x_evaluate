@@ -61,8 +61,9 @@ a subfolder with plots and `trajectory_tracking_summary.xlsx`; the expected mean
 
 The host folder `../data` (override with `DATA_DIR=/path/to/data docker/run.sh`) is mounted at `/data`: datasets are
 read from its `datasets/` subfolder (one folder per dataset, as named in the configs, e.g. `rpg_davis_data/`) and run
-outputs go to `runs/`. To modify the X library itself, clone the fork (branch `accelerator`) next to this repository
-and start with `X_SRC=../x_events docker/run.sh`.
+outputs go to `runs/`. The X library is built from `../x_events` next to this repository when it is checked out (the
+project repository's submodule, or a clone of the fork, branch `accelerator`), mounted over the copy in the image;
+`X_SRC=/path/to/x_events docker/run.sh` picks another checkout, `X_SRC= docker/run.sh` uses the image's copy.
 
 Notes:
 - The first commit of the fork's `accelerator` branch fixes a segfault in `x_events` when an EKLT feature drifts
