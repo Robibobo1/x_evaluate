@@ -48,6 +48,13 @@ RUN evo_config set plot_backend Agg \
     && echo 'source /opt/ros/noetic/setup.bash' >> ~/.bashrc \
     && echo '[ -f /catkin_ws/devel/setup.bash ] && source /catkin_ws/devel/setup.bash' >> ~/.bashrc
 
+# Rerun for the 3D views of the runs. 0.22.0 is the last version that runs on Python 3.8 (0.22.1 declares 3.8 but uses
+# list[float] annotations); its recordings open in the 0.22.1 viewer on the host. Installed after the catkin build so
+# that adding it does not recompile ceres.
+USER root
+RUN python3 -m pip install --no-cache-dir rerun-sdk==0.22.0
+USER dev
+
 COPY docker/entrypoint.sh /entrypoint.sh
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["bash"]
