@@ -1,0 +1,7 @@
+run: /data/rpg_runs/eklt_timing/hdr_boxes/001_hdr_boxes
+windows: 60 x 1.0 s | realtime factor: mean 7.75, min 2.18, max 14.06 (max/min 6.4)
+share of processing time: optimizer 70.4%, rest of event loop 6.0%, other (backend, IMU, images) 23.6%
+event rate: mean 1975 k/s, min 239 k/s, max 3781 k/s | solves: mean 8475/s, max 16090/s, 233.0 events per solve, 0.64 ms per solve
+correlation with load (realtime factor): event rate 0.22, solves 0.94, active patches 0.60
+correlation event rate vs solves: -0.09
+plot: /data/rpg_runs/eklt_timing/analysis/hdr_boxes_load.png

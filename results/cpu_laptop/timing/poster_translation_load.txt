@@ -1,0 +1,7 @@
+run: /data/rpg_runs/eklt_timing/poster_translation/001_poster_translation
+windows: 60 x 1.0 s | realtime factor: mean 11.63, min 3.97, max 24.36 (max/min 6.1)
+share of processing time: optimizer 78.9%, rest of event loop 6.8%, other (backend, IMU, images) 14.3%
+event rate: mean 1667 k/s, min 440 k/s, max 3690 k/s | solves: mean 14864/s, max 30582/s, 112.2 events per solve, 0.62 ms per solve
+correlation with load (realtime factor): event rate 0.88, solves 0.99, active patches 0.77
+correlation event rate vs solves: 0.83
+plot: /data/rpg_runs/eklt_timing/analysis/poster_translation_load.png

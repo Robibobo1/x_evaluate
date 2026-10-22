@@ -1,0 +1,7 @@
+run: /data/rpg_runs/eklt_timing/poster_6dof/001_poster_6dof
+windows: 60 x 1.0 s | realtime factor: mean 12.16, min 2.91, max 21.35 (max/min 7.3)
+share of processing time: optimizer 74.3%, rest of event loop 7.4%, other (backend, IMU, images) 18.2%
+event rate: mean 2224 k/s, min 336 k/s, max 4358 k/s | solves: mean 13998/s, max 26500/s, 158.9 events per solve, 0.65 ms per solve
+correlation with load (realtime factor): event rate 0.49, solves 0.97, active patches 0.64
+correlation event rate vs solves: 0.27
+plot: /data/rpg_runs/eklt_timing/analysis/poster_6dof_load.png

@@ -1,0 +1,21 @@
+run: /data/rpg_runs/eklt_timing/hdr_poster/001_hdr_poster
+clock: 2.496010 CPU ticks per ns (from realtime.csv vs profiling.json)
+total time inside profiled messages: 633.18 s
+
+block                                                                        seconds  % total     calls  ms/call
+Events Message                                                                631.87   99.79%      1793  352.410
+  EKLT Tracking (frontend)                                                    537.82   84.94%      1793  299.957
+    per-event loop body (events.csv)                                          535.36   84.55% 102910720    0.005
+      Optimizer::optimizeParameters (optimizations.csv)                       492.87   77.84%    755760    0.652
+      rest: updatePatch x patches, event frames, interpolation, refills        42.49    6.71%          
+    rest: outside the per-event loop                                            2.47    0.39%          
+  EKLT EKF Vision Updates (backend)                                            93.59   14.78%      1793   52.195
+    Backend feature management                                                 58.30    9.21%     85458    0.682
+    Backend EKF Update                                                         23.62    3.73%     42531    0.555
+    rest: preProcess/manageTracks, closestIdx, repropagation                   11.67    1.84%          
+  rest: msgToEvents conversion                                                  0.46    0.07%          
+IMU Message                                                                     1.29    0.20%     59689    0.022
+  EKF IMU Update                                                                1.27    0.20%     59689    0.021
+Image Message                                                                   0.02    0.00%      1492    0.011
+
+per solve: median 0.65 ms, p10 0.59 ms, p90 0.74 ms, iterations reported by Ceres: min 0, max 11

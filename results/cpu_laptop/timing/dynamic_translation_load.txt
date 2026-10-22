@@ -1,0 +1,7 @@
+run: /data/rpg_runs/eklt_timing/dynamic_translation/001_dynamic_translation
+windows: 60 x 1.0 s | realtime factor: mean 4.44, min 1.94, max 8.26 (max/min 4.3)
+share of processing time: optimizer 81.0%, rest of event loop 5.1%, other (backend, IMU, images) 13.9%
+event rate: mean 597 k/s, min 206 k/s, max 1606 k/s | solves: mean 5833/s, max 10590/s, 102.3 events per solve, 0.62 ms per solve
+correlation with load (realtime factor): event rate 0.74, solves 0.98, active patches 0.40
+correlation event rate vs solves: 0.59
+plot: /data/rpg_runs/eklt_timing/analysis/dynamic_translation_load.png

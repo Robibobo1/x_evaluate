@@ -1,0 +1,7 @@
+run: /data/rpg_runs/eklt_timing/hdr_poster/001_hdr_poster
+windows: 60 x 1.0 s | realtime factor: mean 10.67, min 0.19, max 20.98 (max/min 108.5)
+share of processing time: optimizer 77.0%, rest of event loop 6.6%, other (backend, IMU, images) 16.3%
+event rate: mean 1715 k/s, min 43 k/s, max 3043 k/s | solves: mean 12596/s, max 24805/s, 136.2 events per solve, 0.65 ms per solve
+correlation with load (realtime factor): event rate 0.67, solves 0.99, active patches -0.15
+correlation event rate vs solves: 0.60
+plot: /data/rpg_runs/eklt_timing/analysis/hdr_poster_load.png

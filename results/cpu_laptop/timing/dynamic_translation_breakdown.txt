@@ -1,0 +1,21 @@
+run: /data/rpg_runs/eklt_timing/dynamic_translation/001_dynamic_translation
+clock: 2.496003 CPU ticks per ns (from realtime.csv vs profiling.json)
+total time inside profiled messages: 263.67 s
+
+block                                                                        seconds  % total     calls  ms/call
+Events Message                                                                262.39   99.51%      1794  146.262
+  EKLT Tracking (frontend)                                                    230.00   87.23%      1794  128.203
+    per-event loop body (events.csv)                                          229.21   86.93%  35807292    0.006
+      Optimizer::optimizeParameters (optimizations.csv)                       215.73   81.82%    349951    0.616
+      rest: updatePatch x patches, event frames, interpolation, refills        13.48    5.11%          
+    rest: outside the per-event loop                                            0.79    0.30%          
+  EKLT EKF Vision Updates (backend)                                            32.25   12.23%      1794   17.974
+    Backend feature management                                                 20.18    7.65%     32226    0.626
+    Backend EKF Update                                                          8.36    3.17%     16034    0.521
+    rest: preProcess/manageTracks, closestIdx, repropagation                    3.72    1.41%          
+  rest: msgToEvents conversion                                                  0.15    0.06%          
+IMU Message                                                                     1.27    0.48%     59707    0.021
+  EKF IMU Update                                                                1.25    0.47%     59707    0.021
+Image Message                                                                   0.01    0.01%      1271    0.011
+
+per solve: median 0.63 ms, p10 0.59 ms, p90 0.64 ms, iterations reported by Ceres: min 0, max 11

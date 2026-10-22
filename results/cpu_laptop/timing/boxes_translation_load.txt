@@ -1,0 +1,7 @@
+run: /data/rpg_runs/eklt_timing/boxes_translation/001_boxes_translation
+windows: 60 x 1.0 s | realtime factor: mean 7.21, min 2.72, max 12.90 (max/min 4.7)
+share of processing time: optimizer 71.1%, rest of event loop 6.3%, other (backend, IMU, images) 22.5%
+event rate: mean 1873 k/s, min 297 k/s, max 4051 k/s | solves: mean 8217/s, max 16640/s, 228.0 events per solve, 0.62 ms per solve
+correlation with load (realtime factor): event rate 0.03, solves 0.93, active patches 0.73
+correlation event rate vs solves: -0.32
+plot: /data/rpg_runs/eklt_timing/analysis/boxes_translation_load.png

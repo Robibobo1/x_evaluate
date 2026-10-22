@@ -1,0 +1,7 @@
+run: /data/rpg_runs/eklt_timing/shapes_translation/001_shapes_translation
+windows: 60 x 1.0 s | realtime factor: mean 3.82, min 1.66, max 6.15 (max/min 3.7)
+share of processing time: optimizer 89.5%, rest of event loop 3.0%, other (backend, IMU, images) 7.5%
+event rate: mean 289 k/s, min 100 k/s, max 496 k/s | solves: mean 5834/s, max 9923/s, 49.6 events per solve, 0.59 ms per solve
+correlation with load (realtime factor): event rate 0.20, solves 0.99, active patches 0.53
+correlation event rate vs solves: 0.04
+plot: /data/rpg_runs/eklt_timing/analysis/shapes_translation_load.png
