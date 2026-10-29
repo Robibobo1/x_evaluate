@@ -56,13 +56,9 @@ def ticks_per_ns(run, top_blocks):
     return (ticks[-1] - ticks[0]) / (ns[-1] - ns[0])
 
 
-def main():
-    run = sys.argv[1]
-    profiling_json = sys.argv[2] if len(sys.argv) > 2 else os.path.join(run, 'profiling.json')
-
-    top, t, n = block_tree(profiling_json)
-    k = ticks_per_ns(run, top)
-
+def read_solves(run, k):
+    """Per-solve seconds and iterations from optimizations.csv, and the summed time split of the solves (empty for
+    older runs)."""
     solve_s, iterations, p = [], [], defaultdict(float)
     with open(os.path.join(run, 'optimizations.csv')) as f:
         for r in csv.DictReader(f, delimiter=';'):
@@ -76,6 +72,16 @@ def main():
                           'residual_evaluation_time', 'linear_solver_time', 'num_jacobian_evaluations',
                           'num_residual_evaluations', 'num_linear_solves'):
                     p[c] += float(r[c])
+    return solve_s, iterations, p
+
+
+def main():
+    run = sys.argv[1]
+    profiling_json = sys.argv[2] if len(sys.argv) > 2 else os.path.join(run, 'profiling.json')
+
+    top, t, n = block_tree(profiling_json)
+    k = ticks_per_ns(run, top)
+    solve_s, iterations, p = read_solves(run, k)
 
     event_loop_s, n_events = 0.0, 0
     with open(os.path.join(run, 'events.csv')) as f:
