@@ -1,0 +1,35 @@
+# The first 20 s of two Event Camera Dataset sequences, to measure how each EKLT optimizer solve splits its time
+# (scripts/analyze_time_breakdown.py): Shapes 6DOF (simple scene) and Poster 6DOF (highest optimizer load). Entries
+# copied from evaluate_rpg_table2.yaml, plus `to` = bag start + 20 s (absolute bag time), so that the initial state
+# from the motion capture stays valid. Takes about 4 min with EKLT on one fast laptop core.
+
+common_params:
+  eklt_bootstrap: "klt"
+
+datasets:
+ - name: Shapes 6DOF
+   rosbag: ${XVIO_DATASET_DIR}/rpg_davis_data/shapes_6dof.bag
+   events_topic: /dvs/events
+   image_topic: /dvs/image_raw
+   pose_topic: /optitrack/davis
+   imu_topic: /dvs/imu
+   params: ${X_EVALUATE_SRC_ROOT}/params_rpg_davis.yaml
+   to: 1468940013.1  # bag starts at 1468939993.1
+   override_params:
+     # initial state computed from topic /optitrack/davis over 100ms:
+     p: [4.346317210366623, 1.7357815456832344, 1.358592863606204]
+     v: [0.004762307341565391, 0.01271341553971565, -0.013871390353688104]
+     q: [-0.4831137434015021, 0.5017276809406012, -0.5046097649986157, 0.5101366779428779]  # [w,x,y,z]
+ - name: Poster 6DOF
+   rosbag: ${XVIO_DATASET_DIR}/rpg_davis_data/poster_6dof.bag
+   events_topic: /dvs/events
+   image_topic: /dvs/image_raw
+   pose_topic: /optitrack/davis
+   imu_topic: /dvs/imu
+   params: ${X_EVALUATE_SRC_ROOT}/params_rpg_davis.yaml
+   to: 1468940313.9  # bag starts at 1468940293.9
+   override_params:
+     # initial state computed from topic /optitrack/davis over 100ms:
+     p: [4.435079038565721, -0.4512899051834541, 1.436505416579184]
+     v: [0.00013363752649147009, 0.013441110640813717, -0.011822809412348785]
+     q: [-0.4868524839877926, 0.5065013064576117, -0.5010928587534683, 0.505308848426312]  # [w,x,y,z]
