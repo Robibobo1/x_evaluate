@@ -92,7 +92,7 @@ def log_trajectory(entity, label, times, poses, color, t0, args):
         rr.log(F"{entity}/body", rr.Transform3D(translation=p[:3], rotation=rr.Quaternion(xyzw=p[3:]),
                                                  axis_length=0.1))
     rr.set_time_seconds("time", t_pose[0] - t0)
-    rr.log(F"{entity}/body/marker", rr.Points3D([[0, 0, 0]], colors=color, labels=label,
+    rr.log(F"{entity}/body/marker", rr.Points3D([[0, 0, 0]], colors=color, labels=label, show_labels=args.labels,
                                                  radii=rr.Radius.ui_points(5.0)))
 
     # the whole line up to now is logged at each update, so that each point in time shows its own line
@@ -139,6 +139,9 @@ def main():
     parser.add_argument('--feature_rate', type=float, default=30.0, help="rate of the EKLT feature updates [Hz]")
     parser.add_argument('--trail', type=float, default=0.1, help="length of the feature track lines [s]")
     parser.add_argument('--arrow_length', type=float, default=8.0, help="flow arrow length in image pixels")
+    parser.add_argument('--labels', action='store_true',
+                        help="show the names next to the current poses (hidden by default as they cover the point; "
+                             "hovering over the point or the tree on the left gives the name)")
 
     args = parser.parse_args()
     names = args.names or [os.path.basename(os.path.dirname(os.path.dirname(os.path.abspath(f))))
