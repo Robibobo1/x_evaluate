@@ -1,0 +1,35 @@
+run: data/runs/rpg/solve_breakdown/001_shapes_6dof
+clock: 2.495988 CPU ticks per ns (from realtime.csv vs profiling.json)
+total time inside profiled messages: 70.94 s
+
+block                                                                        seconds  % total     calls  ms/call
+Events Message                                                                 70.55   99.45%       600  117.590
+  EKLT Tracking (frontend)                                                     67.31   94.88%       600  112.187
+    per-event loop body (events.csv)                                           67.22   94.75%   3714316    0.018
+      Optimizer::optimizeParameters (optimizations.csv)                        65.35   92.12%    111220    0.588
+        before Solve: new Problem, cost function, AddResidualBlock              0.08    0.11%          
+        ceres::Solve                                                           65.21   91.92%    111220    0.586
+          Ceres preprocessor                                                    0.16    0.23%          
+          Ceres minimizer (Levenberg-Marquardt)                                64.94   91.54%          
+            cost function + Jacobian (autodiff)                                33.79   47.64%   1107330    0.031
+            cost function, residuals only                                      26.29   37.06%   1037498    0.025
+            linear solver (DENSE_QR, 4 unknowns)                                3.12    4.40%   1037498    0.003
+            rest: step logic, trust region, convergence tests                   1.73    2.44%          
+          Ceres postprocessor                                                   0.04    0.05%          
+          rest: inside Solve, outside the Ceres timers                          0.07    0.09%          
+        after Solve: warp and patch update                                      0.07    0.10%          
+      rest: updatePatch x patches, event frames, interpolation, refills         1.87    2.64%          
+    rest: outside the per-event loop                                            0.09    0.13%          
+  EKLT EKF Vision Updates (backend)                                             3.23    4.55%       600    5.380
+    Backend feature management                                                  2.08    2.93%      3224    0.644
+    Backend EKF Update                                                          0.80    1.13%      1561    0.512
+    rest: preProcess/manageTracks, closestIdx, repropagation                    0.35    0.50%          
+  rest: msgToEvents conversion                                                  0.01    0.02%          
+IMU Message                                                                     0.38    0.54%     19955    0.019
+  EKF IMU Update                                                                0.38    0.53%     19955    0.019
+Image Message                                                                   0.01    0.01%       454    0.013
+
+per solve: median 0.63 ms, p10 0.43 ms, p90 0.65 ms, iterations reported by Ceres: min 1, max 11
+per solve (mean): 10.0 iterations, 10.0 evaluations with Jacobian, 9.3 residuals only, 9.3 linear solves
+cost function (with and without Jacobian): 91.9% of the optimizer, 84.7% of the total, overall speedup if it took no time: 6.53x
+whole optimizer (optimizeParameters): 100.0% of the optimizer, 92.1% of the total, overall speedup if it took no time: 12.69x
