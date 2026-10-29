@@ -8,7 +8,10 @@ All inputs are written by one run of the C++ `evaluate` binary into its output f
                        LD_LIBRARY_PATH=$(dirname $(find /catkin_ws -name libeasy_profiler.so | head -1)) \
                          /catkin_ws/devel/bin/profiler_converter profiling.prof profiling.json
   optimizations.csv  one row per Ceres solve, written at the end of Optimizer::optimizeParameters (optimizer.cpp),
-                     columns ts_start;ts_stop;num_iterations;final_cost, timestamps in raw CPU ticks
+                     columns ts_start;ts_stop;num_iterations;final_cost, timestamps in raw CPU ticks. Newer runs add
+                     ts_solve_start;ts_solve_stop around ceres::Solve and Ceres' own Solver::Summary timings (wall
+                     seconds) and counts; they split the optimizer row into setup, Ceres phases, cost function
+                     evaluations, linear solves and step logic
   events.csv         one row per event, written by EventPerfHelper around the body of the per-event loop in
                      AsyncFeatureTracker::processEvents (async_feature_tracker.cpp), raw CPU ticks
   realtime.csv       one row per rosbag message (evaluate.cpp), used here only to convert ticks to ns
@@ -60,11 +63,19 @@ def main():
     top, t, n = block_tree(profiling_json)
     k = ticks_per_ns(run, top)
 
-    solve_s, iterations = [], []
+    solve_s, iterations, p = [], [], defaultdict(float)
     with open(os.path.join(run, 'optimizations.csv')) as f:
         for r in csv.DictReader(f, delimiter=';'):
             solve_s.append((int(r['ts_stop']) - int(r['ts_start'])) / k * 1e-9)
             iterations.append(int(r['num_iterations']))
+            if 'ts_solve_start' in r:  # older runs only have the first four columns
+                p['setup'] += (int(r['ts_solve_start']) - int(r['ts_start'])) / k * 1e-9
+                p['solve'] += (int(r['ts_solve_stop']) - int(r['ts_solve_start'])) / k * 1e-9
+                p['after'] += (int(r['ts_stop']) - int(r['ts_solve_stop'])) / k * 1e-9
+                for c in ('preprocessor_time', 'minimizer_time', 'postprocessor_time', 'jacobian_evaluation_time',
+                          'residual_evaluation_time', 'linear_solver_time', 'num_jacobian_evaluations',
+                          'num_residual_evaluations', 'num_linear_solves'):
+                    p[c] += float(r[c])
 
     event_loop_s, n_events = 0.0, 0
     with open(os.path.join(run, 'events.csv')) as f:
@@ -79,11 +90,28 @@ def main():
     fm, upd = vis + ('Backend feature management',), vis + ('Backend EKF Update',)
     total = t[ev] + t[imu] + t[img]
 
+    solve_rows = [] if not p else [
+        (4, 'before Solve: new Problem, cost function, AddResidualBlock', p['setup'], None),
+        (4, 'ceres::Solve', p['solve'], len(solve_s)),
+        (5, 'Ceres preprocessor', p['preprocessor_time'], None),
+        (5, 'Ceres minimizer (Levenberg-Marquardt)', p['minimizer_time'], None),
+        (6, 'cost function + Jacobian (autodiff)', p['jacobian_evaluation_time'], int(p['num_jacobian_evaluations'])),
+        (6, 'cost function, residuals only', p['residual_evaluation_time'], int(p['num_residual_evaluations'])),
+        (6, 'linear solver (DENSE_QR, 4 unknowns)', p['linear_solver_time'], int(p['num_linear_solves'])),
+        (6, 'rest: step logic, trust region, convergence tests', p['minimizer_time'] - p['jacobian_evaluation_time']
+         - p['residual_evaluation_time'] - p['linear_solver_time'], None),
+        (5, 'Ceres postprocessor', p['postprocessor_time'], None),
+        (5, 'rest: inside Solve, outside the Ceres timers', p['solve'] - p['preprocessor_time'] - p['minimizer_time']
+         - p['postprocessor_time'], None),
+        (4, 'after Solve: warp and patch update', p['after'], None),
+    ]
+
     rows = [  # (depth, name, seconds, calls)
         (0, 'Events Message', t[ev], n[ev]),
         (1, 'EKLT Tracking (frontend)', t[trk], n[trk]),
         (2, 'per-event loop body (events.csv)', event_loop_s, n_events),
         (3, 'Optimizer::optimizeParameters (optimizations.csv)', sum(solve_s), len(solve_s)),
+        *solve_rows,
         (3, 'rest: updatePatch x patches, event frames, interpolation, refills', event_loop_s - sum(solve_s), None),
         (2, 'rest: outside the per-event loop', t[trk] - event_loop_s, None),
         (1, 'EKLT EKF Vision Updates (backend)', t[vis], n[vis]),
@@ -108,6 +136,18 @@ def main():
     q = statistics.quantiles(solve_s, n=10)
     print(f'\nper solve: median {1e3 * statistics.median(solve_s):.2f} ms, p10 {1e3 * q[0]:.2f} ms, '
           f'p90 {1e3 * q[-1]:.2f} ms, iterations reported by Ceres: min {min(iterations)}, max {max(iterations)}')
+
+    if p:
+        print(f'per solve (mean): {statistics.mean(iterations):.1f} iterations, '
+              f'{p["num_jacobian_evaluations"] / len(solve_s):.1f} evaluations with Jacobian, '
+              f'{p["num_residual_evaluations"] / len(solve_s):.1f} residuals only, '
+              f'{p["num_linear_solves"] / len(solve_s):.1f} linear solves')
+        # Amdahl: if a part took no time at all, the rest still takes (1 - share) of the original time
+        for name, sec in (('cost function (with and without Jacobian)',
+                           p['jacobian_evaluation_time'] + p['residual_evaluation_time']),
+                          ('whole optimizer (optimizeParameters)', sum(solve_s))):
+            print(f'{name}: {100 * sec / sum(solve_s):.1f}% of the optimizer, {100 * sec / total:.1f}% of the total, '
+                  f'overall speedup if it took no time: {1 / (1 - sec / total):.2f}x')
 
 
 if __name__ == '__main__':
