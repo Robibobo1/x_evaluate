@@ -56,8 +56,10 @@ def read_tracks(folder):
 
 
 def compare_tracks(ref_folder, new_folder, threshold):
-    """Distance of every reference track point to the new run's point at the same time (inf if there is none), and
-    for each matched feature what first made its track differ by more than the threshold"""
+    """Distance of every reference track point to the new run's point at the same time (inf if there is none), for
+    each matched feature what first made its track differ by more than the threshold, and for the matched features
+    that differ by more than the threshold at the same time, their largest distance and the distance at their last
+    common point"""
     ref_keys, ref_tracks, ref_counts = read_tracks(ref_folder)
     new_keys, new_tracks, new_counts = read_tracks(new_folder)
     empty = (np.empty(0), np.empty((0, 2)))
@@ -65,6 +67,7 @@ def compare_tracks(ref_folder, new_folder, threshold):
     first = {'none (whole track within)': 0, 'batch at another time': 0, 'lost at another time': 0,
              'position drifted': 0}
     matched = 0
+    largest, last = [], []
     for key, ref_id in ref_keys.items():
         tr, pr = ref_tracks.get(ref_id, empty)
         d = np.full(len(tr), np.inf)
@@ -74,6 +77,9 @@ def compare_tracks(ref_folder, new_folder, threshold):
             tn, pn = new_tracks.get(new_id, empty)
             _, ir, jn = np.intersect1d(tr, tn, assume_unique=True, return_indices=True)
             d[ir] = np.hypot(*(pr[ir] - pn[jn]).T)
+            if len(ir) > 0 and d[ir].max() > threshold:
+                largest.append(d[ir].max())
+                last.append(d[ir][-1])
             # walk both tracks in order until the first point that differs
             m = min(len(tr), len(tn))
             same_time = tr[:m] == tn[:m]
@@ -84,7 +90,7 @@ def compare_tracks(ref_folder, new_folder, threshold):
                 k = int(np.argmin(close))
                 first['position drifted' if same_time[k] else 'batch at another time'] += 1
         dists.append(d)
-    return np.concatenate(dists), matched, first, ref_counts, new_counts
+    return np.concatenate(dists), matched, first, (np.array(largest), np.array(last)), ref_counts, new_counts
 
 
 def trajectory_errors(run):
@@ -119,7 +125,7 @@ def compare(seq, ref_folder, new_folder, threshold, ref_mpe, new_mpe):
 
     ref_s, ref_dumped = read_solves(ref_folder)
     new_s, new_dumped = read_solves(new_folder)
-    dists, matched, first, ref_counts, new_counts = compare_tracks(ref_folder, new_folder, threshold)
+    dists, matched, first, (largest, last), ref_counts, new_counts = compare_tracks(ref_folder, new_folder, threshold)
 
     print('Level 2, tracker')
     row('solves', len(ref_s), len(new_s), ',d')
@@ -137,6 +143,13 @@ def compare(seq, ref_folder, new_folder, threshold, ref_mpe, new_mpe):
           f'99.9% {np.percentile(same_time, 99.9):.1e}, max {same_time.max():.1e}')
     print(f'  matched features, first difference above {threshold:g} px: ' +
           ', '.join(f'{k} {v:,d}' for k, v in first.items()))
+    if len(largest) > 0:
+        print(f'  matched features more than {threshold:g} px apart at the same time: {len(largest):,d}, largest distance '
+              f'median {np.median(largest):.3f} px, above 1 px {np.sum(largest > 1):,d} '
+              f'({100 * np.sum(largest > 1) / n:.1f}% of the reference features), '
+              f'distance at the last common point median {np.median(last):.3f} px')
+    else:
+        print(f'  matched features more than {threshold:g} px apart at the same time: 0')
 
     print('Level 3, trajectory')
     if ref_mpe and new_mpe and seq in ref_mpe and seq in new_mpe:
